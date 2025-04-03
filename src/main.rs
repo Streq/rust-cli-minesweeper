@@ -1,12 +1,9 @@
 use crate::Flag::*;
 use crate::MineState::*;
 use crate::Visibility::*;
-use rand::{RngCore, random};
-use std::collections::HashSet;
+use rand::RngCore;
 use std::fmt::{Debug, Display, Formatter, Result, Write};
-use std::hash::RandomState;
 use std::ops::{Index, IndexMut, Range};
-use std::time::Instant;
 
 #[derive(Copy, Clone)]
 enum MineState {
