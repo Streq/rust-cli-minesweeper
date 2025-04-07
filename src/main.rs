@@ -1,13 +1,18 @@
 use crate::FlagState::*;
 use crate::MineState::*;
 use crate::Visibility::*;
-use crate::WinState::{Lost, Ongoing, Untouched, Won};
+use crate::WinState::*;
+use Action::*;
+use args::MinesweeperArgs;
+use clap::Parser;
 use rand::RngCore;
 use std::cmp::min;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Display, Formatter, Result, Write};
 use std::iter::Iterator;
 use std::ops::{Index, IndexMut, Range};
+
+mod args;
 
 const DIRS_8: [(i8, i8); 8] = [
     (1, 0),
@@ -44,19 +49,19 @@ impl Default for MineState {
 #[derive(Copy, Clone, Debug)]
 enum FlagState {
     None,
-    Flag,
-    FlagMaybe,
+    Flagged,
+    FlaggedMaybe,
 }
 impl FlagState {
     // man this sucks, you'd think compile time sized enums would be a given
-    const SIZE: u32 = FlagMaybe as u32 + 1;
+    const SIZE: u32 = FlaggedMaybe as u32 + 1;
     fn next(self) -> Self {
         // you'd also think "if enum to int is allowed, so is int to enum", well think again
         let next = (self as u32 + 1) % Self::SIZE;
         match next {
             0 => None,
-            1 => Flag,
-            2 => FlagMaybe,
+            1 => Flagged,
+            2 => FlaggedMaybe,
             //purposely not _ so that it breaks if new flags are added
             Self::SIZE.. => None, // unreachable due to previous line
         }
@@ -87,11 +92,11 @@ impl Display for Tile {
                 ..
             } => '#',
             Tile {
-                visibility: Hidden(Flag),
+                visibility: Hidden(Flagged),
                 ..
             } => '!',
             Tile {
-                visibility: Hidden(FlagMaybe),
+                visibility: Hidden(FlaggedMaybe),
                 ..
             } => '?',
             Tile {
@@ -129,10 +134,11 @@ impl Default for WinState {
 
 #[derive(Copy, Clone, Debug)]
 enum Action {
-    Show,
-    Flag,
+    ShowTile,
+    FlagTile,
     Surrender,
     Restart,
+    Next,
 }
 
 #[derive(Default, Debug)]
@@ -192,13 +198,6 @@ fn valid_neighbors(
         .map(|(i, j)| (i as usize, j as usize))
 }
 
-#[derive(Copy, Clone, Default, Debug)]
-struct MinesweeperArgs {
-    width: usize,
-    height: usize,
-    mines: usize,
-}
-
 impl Minesweeper {
     pub fn new(args: MinesweeperArgs) -> Self {
         let size = args.width * args.height;
@@ -215,14 +214,22 @@ impl Minesweeper {
         };
         let (x, y) = self.input_state.cursor;
         match n {
-            Action::Show => self.show_tile(x, y),
-            Action::Flag => self.flag_tile(x, y),
-            Action::Surrender => {
+            ShowTile => self.show_tile(x, y),
+            FlagTile => self.flag_tile(x, y),
+            Surrender => {
                 self.show_all();
                 self.win_state = Lost
             }
-            Action::Restart => {
+            Restart => {
                 *self = Self::new(self.args);
+                self.input_state.cursor = (x, y)
+            }
+            Next => 'b: {
+                let Won = self.win_state else { break 'b };
+                *self = Self::new(MinesweeperArgs {
+                    mines: self.args.mines + 1,
+                    ..self.args
+                });
                 self.input_state.cursor = (x, y)
             }
         };
@@ -262,7 +269,7 @@ impl Minesweeper {
         let Ongoing = self.win_state else { return };
 
         let tile = Self::get_tile(&mut self.tiles, self.args.width, x, y);
-        if let Show | Hidden(Flag) = tile.visibility {
+        if let Show | Hidden(Flagged) = tile.visibility {
             return;
         }
 
@@ -312,12 +319,12 @@ impl Minesweeper {
         let Hidden(flag) = tile.visibility else {
             return;
         };
-        if let Flag = flag {
+        if let Flagged = flag {
             self.flagged_tiles -= 1;
         }
 
         let mut flag = flag.next();
-        if let Flag = flag {
+        if let Flagged = flag {
             if self.flagged_tiles == self.args.mines {
                 flag = flag.next();
             } else {
@@ -329,7 +336,7 @@ impl Minesweeper {
     fn _show_tile(visibility: &mut Visibility, flagged_tiles: &mut usize, shown_tiles: &mut usize) {
         match visibility {
             Hidden(f) => {
-                if let Flag = f {
+                if let Flagged = f {
                     *flagged_tiles -= 1
                 }
                 *shown_tiles += 1
@@ -388,13 +395,16 @@ impl IndexMut<usize> for Minesweeper {
 }
 
 fn main() {
-    ui::main().unwrap()
+    let args = MinesweeperArgs::parse();
+    ui::main(args).unwrap()
 }
 
 mod ui {
+    use crate::Action::{FlagTile, Next, Restart, ShowTile, Surrender};
     use crate::FlagState::*;
     use crate::Visibility::*;
-    use crate::{Action, MineState, Minesweeper, MinesweeperArgs, WinState};
+    use crate::args::MinesweeperArgs;
+    use crate::{MineState, Minesweeper, WinState};
     use color_eyre::Result;
     use crossterm::ExecutableCommand;
     use crossterm::event::{
@@ -411,10 +421,10 @@ mod ui {
         widgets::{Block, Paragraph},
     };
 
-    pub fn main() -> Result<()> {
+    pub fn main(args: MinesweeperArgs) -> Result<()> {
         color_eyre::install()?;
         let terminal = ratatui::init();
-        let result = App::new().run(terminal);
+        let result = App::new(args).run(terminal);
         ratatui::restore();
         result
     }
@@ -428,13 +438,9 @@ mod ui {
     }
     impl App {
         /// Construct a new instance of [`App`].
-        pub fn new() -> Self {
+        pub fn new(args: MinesweeperArgs) -> Self {
             Self {
-                game: Minesweeper::new(MinesweeperArgs {
-                    width: 32,
-                    height: 32,
-                    mines: 100,
-                }),
+                game: Minesweeper::new(args),
                 ..Self::default()
             }
         }
@@ -462,10 +468,8 @@ mod ui {
         fn render(&mut self, frame: &mut Frame) {
             self.game.update();
             let title = match self.game.win_state {
-                WinState::Lost => Line::from("You lose!! Press R to restart")
-                    .bold()
-                    .light_red(),
-                WinState::Won => Line::from("You win!!! Press R to restart")
+                WinState::Lost => Line::from("You lose!! (R)estart (Q)uit").bold().light_red(),
+                WinState::Won => Line::from("You win!!! (R)estart (Q)uit (N)ext")
                     .bold()
                     .light_green(),
                 _ => Line::from("Minesweeper!").bold().light_blue(),
@@ -509,8 +513,8 @@ mod ui {
                     let (char, bg, fg) = match tile.visibility {
                         Hidden(f) => match f {
                             None => ('#', Reset, HIDDEN_COLOR),
-                            Flag => ('!', LightRed, WARN_COLOR),
-                            FlagMaybe => ('?', LightRed, WARN_COLOR),
+                            Flagged => ('!', LightRed, WARN_COLOR),
+                            FlaggedMaybe => ('?', LightRed, WARN_COLOR),
                         },
                         Show => match tile.mine {
                             MineState::Empty(n) => match n {
@@ -555,9 +559,9 @@ mod ui {
                         self.game.input_state.cursor =
                             ((m.column - 1) as usize, (m.row - 1) as usize);
                         match button {
-                            MouseButton::Left => self.game.input_state.action = Some(Action::Show),
+                            MouseButton::Left => self.game.input_state.action = Some(ShowTile),
                             MouseButton::Right | MouseButton::Middle => {
-                                self.game.input_state.action = Some(Action::Flag)
+                                self.game.input_state.action = Some(FlagTile)
                             }
                         };
                     }
@@ -576,16 +580,19 @@ mod ui {
                 | (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
                 // Add other key handlers here.
                 (_, KeyCode::Char('k')) => {
-                    self.game.input_state.action = Some(Action::Surrender);
+                    self.game.input_state.action = Some(Surrender);
                 }
                 (_, KeyCode::Char('r')) => {
-                    self.game.input_state.action = Some(Action::Restart);
+                    self.game.input_state.action = Some(Restart);
+                }
+                (_, KeyCode::Char('n')) => {
+                    self.game.input_state.action = Some(Next);
                 }
                 (_, KeyCode::Char('x' | ' ')) => {
-                    self.game.input_state.action = Some(Action::Show);
+                    self.game.input_state.action = Some(ShowTile);
                 }
                 (_, KeyCode::Char('z')) => {
-                    self.game.input_state.action = Some(Action::Flag);
+                    self.game.input_state.action = Some(FlagTile);
                 }
                 (_, KeyCode::Left) => {
                     self.game.move_cursor(-1, 0);
