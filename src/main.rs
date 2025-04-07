@@ -3,11 +3,11 @@ use crate::MineState::*;
 use crate::Visibility::*;
 use crate::WinState::{Lost, Ongoing, Untouched, Won};
 use rand::RngCore;
-use std::cmp::{max, min};
+use std::cmp::min;
 use std::collections::VecDeque;
 use std::fmt::{Debug, Display, Formatter, Result, Write};
 use std::iter::Iterator;
-use std::ops::{Index, IndexMut, Range, RangeInclusive};
+use std::ops::{Index, IndexMut, Range};
 
 const DIRS_CARDINAL: [(i8, i8); 4] = [(1, 0), (0, 1), (-1, 0), (0, -1)];
 const DIRS_DIAGONAL: [(i8, i8); 4] = [(1, 1), (-1, 1), (-1, -1), (1, -1)];
@@ -292,6 +292,9 @@ impl Minesweeper {
             return;
         }
 
+        tile.visibility = Show;
+        self.shown_tiles += 1;
+
         if let Mine = tile.mine {
             // explode
             for tile in &mut self.tiles {
@@ -306,17 +309,18 @@ impl Minesweeper {
         stack.push_back((x, y));
         let w = self.args.width;
         let h = self.args.height;
-        while let Some((x, y)) = stack.pop_back() {
-            let tile = Self::get_tile(&mut self.tiles, self.args.width, x, y);
 
-            tile.visibility = Show;
-            self.shown_tiles += 1;
+        while let Some((x, y)) = stack.pop_back() {
+            let tile = Self::get_tile(&mut self.tiles, w, x, y);
+
             match tile.mine {
                 Empty(0) => {
                     // expand
                     for (i, j) in valid_neighbors(&DIRS_8, x, y, w, h) {
-                        let tile = Self::get_tile(&mut self.tiles, self.args.width, i, j);
+                        let tile = Self::get_tile(&mut self.tiles, w, i, j);
                         let Hidden(_) = tile.visibility else { continue };
+                        tile.visibility = Show;
+                        self.shown_tiles += 1;
                         stack.push_back((i, j))
                     }
                 }
@@ -400,17 +404,14 @@ fn main() {
 mod ui {
     use crate::FlagState::*;
     use crate::Visibility::*;
-    use crate::{
-        Action, InputState, MineState, Minesweeper, MinesweeperArgs, Tile, WinState,
-        make_random_holes,
-    };
+    use crate::{Action, MineState, Minesweeper, MinesweeperArgs, Tile, WinState};
     use color_eyre::Result;
     use crossterm::ExecutableCommand;
     use crossterm::event::{
         self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind,
     };
     use ratatui::buffer::Cell;
-    use ratatui::layout::{Margin, Position, Rect};
+    use ratatui::layout::{Position, Rect};
     use ratatui::style::Color;
     use ratatui::{
         DefaultTerminal, Frame,
@@ -441,7 +442,7 @@ mod ui {
                 game: Minesweeper::new(MinesweeperArgs {
                     width: 32,
                     height: 32,
-                    mines: 10,
+                    mines: 100,
                 }),
                 ..Self::default()
             }
@@ -529,7 +530,7 @@ mod ui {
                             mine: MineState::Empty(0),
                             ..
                         } => {
-                            let mut c = Cell::new(" ");
+                            let c = Cell::new(" ");
                             c
                         }
                         Tile {
