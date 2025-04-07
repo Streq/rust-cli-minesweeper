@@ -5,7 +5,14 @@ edition = "2024"
 
 [dependencies]
 rand = "0.9.0"
-crossterm = "0.28.1"
+crossterm = "0.29.0"
 ratatui = "0.29.0"
 color-eyre = "0.6.3"
 clap = { version = "4.5.35", features = ["derive"] }
+
+[profile.release]
+opt-level = "z"         # Optimize for size ("z" is more aggressive than "s")
+lto = true              # Enable Link Time Optimization
+codegen-units = 1       # Reduce parallelism to improve size
+strip = true            # Remove symbols
+panic = "abort"         # Smaller than "unwind" (if unwinding is not needed)
