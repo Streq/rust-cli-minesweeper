@@ -9,8 +9,6 @@ use std::fmt::{Debug, Display, Formatter, Result, Write};
 use std::iter::Iterator;
 use std::ops::{Index, IndexMut, Range};
 
-const DIRS_CARDINAL: [(i8, i8); 4] = [(1, 0), (0, 1), (-1, 0), (0, -1)];
-const DIRS_DIAGONAL: [(i8, i8); 4] = [(1, 1), (-1, 1), (-1, -1), (1, -1)];
 const DIRS_8: [(i8, i8); 8] = [
     (1, 0),
     (1, 1),
@@ -248,30 +246,6 @@ impl Minesweeper {
         }
     }
 
-    fn unset_mine(&mut self, x: usize, y: usize) {
-        let tile = self[y][x].mine;
-        let Mine = tile else { return };
-        let mut neighbor_mines = 0;
-
-        for (i, j) in valid_neighbors(&DIRS_8, x, y, self.args.width, self.args.height) {
-            let mine = &mut self[j][i].mine;
-            match mine {
-                Empty(count) => *count -= 1,
-                Mine => neighbor_mines += 1,
-            }
-        }
-        self[y][x].mine = Empty(neighbor_mines);
-    }
-
-    fn fill_iter<T: Iterator<Item = usize>>(&mut self, mut iterator: T) {
-        while let Some(tile) = iterator.next() {
-            self.tiles[tile].mine = match (self.tiles[tile].mine) {
-                Mine => continue,
-                _ => Mine,
-            }
-        }
-    }
-
     fn show_tile(&mut self, x: usize, y: usize) {
         if let Untouched = self.win_state {
             let size = self.tiles.len();
@@ -292,14 +266,15 @@ impl Minesweeper {
             return;
         }
 
-        tile.visibility = Show;
-        self.shown_tiles += 1;
+        let flagged_tiles = &mut self.flagged_tiles;
+        let shown_tiles = &mut self.shown_tiles;
+        Self::_show_tile(&mut tile.visibility, flagged_tiles, shown_tiles);
 
         if let Mine = tile.mine {
             // explode
             for tile in &mut self.tiles {
                 let Mine = tile.mine else { continue };
-                tile.visibility = Show;
+                Self::_show_tile(&mut tile.visibility, flagged_tiles, shown_tiles);
             }
             self.win_state = Lost;
             return;
@@ -319,8 +294,7 @@ impl Minesweeper {
                     for (i, j) in valid_neighbors(&DIRS_8, x, y, w, h) {
                         let tile = Self::get_tile(&mut self.tiles, w, i, j);
                         let Hidden(_) = tile.visibility else { continue };
-                        tile.visibility = Show;
-                        self.shown_tiles += 1;
+                        Self::_show_tile(&mut tile.visibility, flagged_tiles, shown_tiles);
                         stack.push_back((i, j))
                     }
                 }
@@ -352,9 +326,25 @@ impl Minesweeper {
         }
         tile.visibility = Hidden(flag);
     }
+    fn _show_tile(visibility: &mut Visibility, flagged_tiles: &mut usize, shown_tiles: &mut usize) {
+        match visibility {
+            Hidden(f) => {
+                if let Flag = f {
+                    *flagged_tiles -= 1
+                }
+                *shown_tiles += 1
+            }
+            _ => {}
+        }
+        *visibility = Show
+    }
     pub fn show_all(&mut self) {
         for tile in &mut self.tiles {
-            tile.visibility = Show;
+            Self::_show_tile(
+                &mut tile.visibility,
+                &mut self.flagged_tiles,
+                &mut self.shown_tiles,
+            );
         }
     }
 
@@ -404,7 +394,7 @@ fn main() {
 mod ui {
     use crate::FlagState::*;
     use crate::Visibility::*;
-    use crate::{Action, MineState, Minesweeper, MinesweeperArgs, Tile, WinState};
+    use crate::{Action, MineState, Minesweeper, MinesweeperArgs, WinState};
     use color_eyre::Result;
     use crossterm::ExecutableCommand;
     use crossterm::event::{
@@ -413,6 +403,7 @@ mod ui {
     use ratatui::buffer::Cell;
     use ratatui::layout::{Position, Rect};
     use ratatui::style::Color;
+    use ratatui::style::Color::*;
     use ratatui::{
         DefaultTerminal, Frame,
         style::Stylize,
@@ -420,7 +411,7 @@ mod ui {
         widgets::{Block, Paragraph},
     };
 
-    pub fn main() -> color_eyre::Result<()> {
+    pub fn main() -> Result<()> {
         color_eyre::install()?;
         let terminal = ratatui::init();
         let result = App::new().run(terminal);
@@ -469,10 +460,15 @@ mod ui {
         /// - <https://docs.rs/ratatui/latest/ratatui/widgets/index.html>
         /// - <https://github.com/ratatui/ratatui/tree/main/ratatui-widgets/examples>
         fn render(&mut self, frame: &mut Frame) {
+            self.game.update();
             let title = match self.game.win_state {
-                WinState::Lost => Line::from("You lose!! Press R to restart").bold().red(),
-                WinState::Won => Line::from("You win!!! Press R to restart").bold().green(),
-                _ => Line::from("Minesweeper!").bold().blue(),
+                WinState::Lost => Line::from("You lose!! Press R to restart")
+                    .bold()
+                    .light_red(),
+                WinState::Won => Line::from("You win!!! Press R to restart")
+                    .bold()
+                    .light_green(),
+                _ => Line::from("Minesweeper!").bold().light_blue(),
             }
             .centered();
 
@@ -496,7 +492,6 @@ mod ui {
                     .centered(),
                 area,
             );
-            self.game.update();
 
             if area.height == 0 && area.width == 0 {
                 return;
@@ -505,66 +500,38 @@ mod ui {
             for j in area.y + 1..area.y + area.height - 1 {
                 for i in area.x + 1..area.x + area.width - 1 {
                     let tile = self.game[(j - 1) as usize][(i - 1) as usize];
-                    let cell = match tile {
-                        Tile {
-                            visibility: Hidden(None),
-                            ..
-                        } => Cell::new("#"),
-                        Tile {
-                            visibility: Hidden(Flag),
-                            ..
-                        } => {
-                            let mut c = Cell::new("!");
-                            c.set_fg(Color::Red);
-                            c
-                        }
-                        Tile {
-                            visibility: Hidden(FlagMaybe),
-                            ..
-                        } => {
-                            let mut c = Cell::new("?");
-                            c.set_fg(Color::Red);
-                            c
-                        }
-                        Tile {
-                            mine: MineState::Empty(0),
-                            ..
-                        } => {
-                            let c = Cell::new(" ");
-                            c
-                        }
-                        Tile {
-                            mine: MineState::Empty(n),
-                            ..
-                        } => {
-                            let (n, bg, fg) = match n {
-                                1 => ("1", Color::LightBlue, Color::Black),
-                                2 => ("2", Color::LightCyan, Color::Black),
-                                3 => ("3", Color::LightGreen, Color::Black),
-                                4 => ("4", Color::LightYellow, Color::Black),
-                                5 => ("5", Color::LightMagenta, Color::Black),
-                                6 => ("6", Color::LightBlue, Color::LightYellow),
-                                7 => ("7", Color::LightCyan, Color::LightYellow),
-                                8 => ("8", Color::LightGreen, Color::LightYellow),
-                                _ => (" ", Color::White, Color::Black),
-                            };
-                            let mut c = Cell::new(n);
-                            c.set_bg(bg);
-                            c.set_fg(Color::Black);
-                            c
-                        }
-                        Tile {
-                            mine: MineState::Mine,
-                            ..
-                        } => {
-                            let mut c = Cell::new("*");
-                            c.set_bg(Color::LightRed);
-                            c
-                        }
+
+                    const HIDDEN_COLOR: Color = Reset;
+                    const WARN_COLOR: Color = LightYellow;
+                    const NUM_COLOR: Color = Black;
+                    const NUM_COLOR2: Color = Black;
+
+                    let (char, bg, fg) = match tile.visibility {
+                        Hidden(f) => match f {
+                            None => ('#', Reset, HIDDEN_COLOR),
+                            Flag => ('!', LightRed, WARN_COLOR),
+                            FlagMaybe => ('?', LightRed, WARN_COLOR),
+                        },
+                        Show => match tile.mine {
+                            MineState::Empty(n) => match n {
+                                0 => (' ', Black, Reset),
+                                1 => ('1', LightBlue, NUM_COLOR),
+                                2 => ('2', LightGreen, NUM_COLOR),
+                                3 => ('3', LightCyan, NUM_COLOR),
+                                4 => ('4', LightYellow, NUM_COLOR),
+                                5 => ('5', LightMagenta, NUM_COLOR2),
+                                6 => ('6', Gray, NUM_COLOR2),
+                                7 => ('7', White, NUM_COLOR2),
+                                8.. => ('8', LightRed, NUM_COLOR2),
+                            },
+                            MineState::Mine => ('*', Black, LightRed),
+                        },
                     };
 
                     let w = frame.area().width;
-                    frame.buffer_mut().content[(w * j + i) as usize] = cell;
+                    let mut c = Cell::new("");
+                    c.set_char(char).set_fg(fg).set_bg(bg);
+                    frame.buffer_mut().content[(w * j + i) as usize] = c;
                 }
             }
 
@@ -574,10 +541,6 @@ mod ui {
             });
         }
 
-        /// Reads the crossterm events and updates the state of [`App`].
-        ///
-        /// If your application needs to perform work in between handling events, you can use the
-        /// [`event::poll`] function to check if there are any events available with a timeout.
         fn handle_crossterm_events(&mut self) -> Result<()> {
             match event::read()? {
                 // it's important to check KeyEventKind::Press to avoid handling key release events
@@ -618,7 +581,7 @@ mod ui {
                 (_, KeyCode::Char('r')) => {
                     self.game.input_state.action = Some(Action::Restart);
                 }
-                (_, KeyCode::Char('x')) => {
+                (_, KeyCode::Char('x' | ' ')) => {
                     self.game.input_state.action = Some(Action::Show);
                 }
                 (_, KeyCode::Char('z')) => {
