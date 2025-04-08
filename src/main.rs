@@ -3,10 +3,11 @@ use crate::MineState::*;
 use crate::Visibility::*;
 use crate::WinState::*;
 use Action::*;
+use Unit::*;
 use args::MinesweeperArgs;
 use clap::Parser;
 use rand::RngCore;
-use std::cmp::min;
+use std::cmp::{max, min};
 use std::collections::VecDeque;
 use std::fmt::{Debug, Display, Formatter, Result, Write};
 use std::iter::Iterator;
@@ -133,12 +134,22 @@ impl Default for WinState {
 }
 
 #[derive(Copy, Clone, Debug)]
+enum Unit {
+    Negative = -1,
+    Zero = 0,
+    Positive = 1,
+}
+#[derive(Copy, Clone, Debug)]
 enum Action {
     ShowTile,
     FlagTile,
+    ClearFlag,
     Surrender,
     Restart,
     Next,
+    Previous,
+    Resize(Unit, Unit),
+    IncrementMines(Unit),
 }
 
 #[derive(Default, Debug)]
@@ -149,6 +160,9 @@ struct InputState {
 #[derive(Debug, Default)]
 struct Minesweeper {
     args: MinesweeperArgs,
+    text_top: &'static str,
+    title: &'static str,
+    text_bottom: &'static str,
     tiles: Vec<Tile>,
     win_state: WinState,
     flagged_tiles: usize,
@@ -200,10 +214,33 @@ fn valid_neighbors(
 
 impl Minesweeper {
     pub fn new(args: MinesweeperArgs) -> Self {
+        let args = args.clamped();
         let size = args.width * args.height;
+
+        const RETRY: &'static str = "(R)etry (Q)uit";
+        const RETRY_SHORT: &'static str = "(R) (Q)";
+        const NEXT: &'static str = "(N)ext (P)rev";
+        const NEXT_SHORT: &'static str = "(N) (P)";
+        const TITLE: &'static str = "Minesweeper!";
+        const TITLE_SHORT: &'static str = "mnswpr!!";
+
+        let title = if args.width < TITLE.len() {
+            TITLE_SHORT
+        } else {
+            TITLE
+        };
+        let (text_top, text_bottom) = if args.width < max(RETRY.len(), NEXT.len()) {
+            (RETRY_SHORT, NEXT_SHORT)
+        } else {
+            (RETRY, NEXT)
+        };
+
         Self {
             args,
             tiles: vec![Tile::default(); size],
+            title,
+            text_top,
+            text_bottom,
             ..Self::default()
         }
     }
@@ -216,6 +253,7 @@ impl Minesweeper {
         match n {
             ShowTile => self.show_tile(x, y),
             FlagTile => self.flag_tile(x, y),
+            ClearFlag => self.clear_flag(x, y),
             Surrender => {
                 self.show_all();
                 self.win_state = Lost
@@ -224,12 +262,28 @@ impl Minesweeper {
                 *self = Self::new(self.args);
                 self.input_state.cursor = (x, y)
             }
-            Next => 'b: {
-                let Won = self.win_state else { break 'b };
-                *self = Self::new(MinesweeperArgs {
-                    mines: self.args.mines + 1,
-                    ..self.args
-                });
+            Next => {
+                self.args.mines += self.args.mines / 5 + 1;
+                *self = Self::new(self.args);
+                self.input_state.cursor = (x, y)
+            }
+            Previous => {
+                self.args.mines -= self.args.mines / 6 + 1;
+                *self = Self::new(self.args);
+                self.input_state.cursor = (x, y)
+            }
+            Resize(dx, dy) => {
+                self.args.width = self.args.width.saturating_add_signed(dx as isize);
+                self.args.height = self.args.height.saturating_add_signed(dy as isize);
+                *self = Self::new(self.args);
+                self.input_state.cursor = (
+                    x.clamp(0, self.args.width - 1),
+                    y.clamp(0, self.args.height - 1),
+                )
+            }
+            IncrementMines(sign) => {
+                self.args.mines = self.args.mines.saturating_add_signed(sign as isize);
+                *self = Self::new(self.args);
                 self.input_state.cursor = (x, y)
             }
         };
@@ -255,6 +309,8 @@ impl Minesweeper {
 
     fn show_tile(&mut self, x: usize, y: usize) {
         if let Untouched = self.win_state {
+            let x = x.clamp(1, self.args.width - 2);
+            let y = y.clamp(1, self.args.height - 2);
             let size = self.tiles.len();
             let whitelisted = valid_neighbors(&DIRS_9, x, y, self.args.width, self.args.height)
                 .map(|(x, y)| y * self.args.width + x);
@@ -314,6 +370,20 @@ impl Minesweeper {
             self.win_state = Won
         }
     }
+
+    pub fn clear_flag(&mut self, x: usize, y: usize) {
+        let tile = Self::get_tile(&mut self.tiles, self.args.width, x, y);
+        match tile.visibility {
+            Show => return,
+            Hidden(flag) => {
+                if let Flagged = flag {
+                    self.flagged_tiles -= 1;
+                }
+                tile.visibility = Hidden(None);
+            }
+        }
+    }
+
     pub fn flag_tile(&mut self, x: usize, y: usize) {
         let tile = Self::get_tile(&mut self.tiles, self.args.width, x, y);
         let Hidden(flag) = tile.visibility else {
@@ -400,11 +470,12 @@ fn main() {
 }
 
 mod ui {
-    use crate::Action::{FlagTile, Next, Restart, ShowTile, Surrender};
+    use crate::Action::*;
     use crate::FlagState::*;
+    use crate::Unit::{Negative, Positive, Zero};
     use crate::Visibility::*;
     use crate::args::MinesweeperArgs;
-    use crate::{MineState, Minesweeper, WinState};
+    use crate::{InputState, MineState, Minesweeper, WinState};
     use color_eyre::Result;
     use crossterm::ExecutableCommand;
     use crossterm::event::{
@@ -467,32 +538,65 @@ mod ui {
         /// - <https://github.com/ratatui/ratatui/tree/main/ratatui-widgets/examples>
         fn render(&mut self, frame: &mut Frame) {
             self.game.update();
-            let title = match self.game.win_state {
-                WinState::Lost => Line::from("You lose!! (R)estart (Q)uit").bold().light_red(),
-                WinState::Won => Line::from("You win!!! (R)estart (Q)uit (N)ext")
-                    .bold()
-                    .light_green(),
-                _ => Line::from("Minesweeper!").bold().light_blue(),
-            }
-            .centered();
 
-            let game = &self.game;
-            let area = frame.area().clamp(Rect::new(
-                0,
-                0,
-                game.args.width as u16 + 2,
-                game.args.height as u16 + 2,
-            ));
+            let Minesweeper {
+                args:
+                    MinesweeperArgs {
+                        width,
+                        height,
+                        mines,
+                        ..
+                    },
+                win_state,
+                text_top,
+                text_bottom,
+                title,
+                input_state: InputState { cursor: (x, y), .. },
+                flagged_tiles,
+                ..
+            } = self.game;
+
+            let (title, bottom) = match win_state {
+                WinState::Untouched => (
+                    Line::from(title).bold().light_blue().centered(),
+                    Line::from(format!("{}x{},{}", width, height, mines)).centered(),
+                ),
+                WinState::Won => (
+                    Line::from(text_top).bold().light_green().centered(),
+                    Line::from(text_bottom).bold().light_green().centered(),
+                ),
+                WinState::Lost => (
+                    Line::from(text_top).bold().light_red().centered(),
+                    Line::from(text_bottom).bold().light_red().centered(),
+                ),
+                _ => {
+                    let max_x = width - 1;
+                    let width_digits = max_x.to_string().len();
+                    let max_y = height - 1;
+                    let height_digits = max_y.to_string().len();
+                    let mines_digits = mines.to_string().len();
+
+                    let mut stats = format!(
+                        "{:mines_digits$}/{} ({:width_digits$},{:height_digits$}) {}x{}",
+                        flagged_tiles, mines, x, y, width, height
+                    );
+                    if stats.len() > width {
+                        stats = format!("{} {},{}", mines - flagged_tiles, x, y);
+                    }
+
+                    (
+                        Line::from(title).bold().light_blue().centered(),
+                        Line::from(stats).centered(),
+                    )
+                }
+            };
+            let area = frame
+                .area()
+                .clamp(Rect::new(0, 0, width as u16 + 2, height as u16 + 2));
 
             frame.render_widget(
                 Paragraph::new("")
-                    .block(Block::bordered().title(title).title_bottom(format!(
-                        "{}/{} ({}, {})",
-                        game.flagged_tiles,
-                        game.args.mines,
-                        game.input_state.cursor.0,
-                        game.input_state.cursor.1
-                    )))
+                    .block(Block::bordered().title(title).title_bottom(bottom))
                     .centered(),
                 area,
             );
@@ -588,24 +692,42 @@ mod ui {
                 (_, KeyCode::Char('n')) => {
                     self.game.input_state.action = Some(Next);
                 }
+                (_, KeyCode::Char('p')) => {
+                    self.game.input_state.action = Some(Previous);
+                }
                 (_, KeyCode::Char('x' | ' ')) => {
                     self.game.input_state.action = Some(ShowTile);
                 }
-                (_, KeyCode::Char('z')) => {
+                (_, KeyCode::Char('z' | 'f')) => {
                     self.game.input_state.action = Some(FlagTile);
                 }
-                (_, KeyCode::Left) => {
-                    self.game.move_cursor(-1, 0);
+                (_, KeyCode::Backspace) => {
+                    self.game.input_state.action = Some(ClearFlag);
                 }
-                (_, KeyCode::Right) => {
-                    self.game.move_cursor(1, 0);
+                (_, KeyCode::Char('+')) => {
+                    self.game.input_state.action = Some(IncrementMines(Positive));
                 }
-                (_, KeyCode::Up) => {
-                    self.game.move_cursor(0, -1);
+                (_, KeyCode::Char('-')) => {
+                    self.game.input_state.action = Some(IncrementMines(Negative));
                 }
-                (_, KeyCode::Down) => {
-                    self.game.move_cursor(0, 1);
+                (
+                    modifiers,
+                    key @ (KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down),
+                ) => {
+                    let (x, y) = match key {
+                        KeyCode::Left => (Negative, Zero),
+                        KeyCode::Right => (Positive, Zero),
+                        KeyCode::Up => (Zero, Negative),
+                        KeyCode::Down => (Zero, Positive),
+                        _ => unreachable!(),
+                    };
+                    if modifiers.contains(KeyModifiers::SHIFT) {
+                        self.game.input_state.action = Some(Resize(x, y));
+                    } else {
+                        self.game.move_cursor(x as i32, y as i32);
+                    }
                 }
+
                 _ => {}
             }
         }
