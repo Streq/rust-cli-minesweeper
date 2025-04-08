@@ -3,7 +3,6 @@ use crate::MineState::*;
 use crate::Visibility::*;
 use crate::WinState::*;
 use Action::*;
-use Unit::*;
 use args::MinesweeperArgs;
 use clap::Parser;
 use rand::RngCore;
