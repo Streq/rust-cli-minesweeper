@@ -5,12 +5,14 @@ use crate::WinState::*;
 use Action::*;
 use args::MinesweeperArgs;
 use clap::Parser;
+// use log::LevelFilter;
 use rand::RngCore;
+// use simplelog::{Config, WriteLogger};
 use std::cmp::{max, min};
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::fmt::{Debug, Display, Formatter, Result, Write};
+// use std::fs::File;
 use std::iter::Iterator;
-use std::ops::{Index, IndexMut, Range};
 
 mod args;
 
@@ -86,33 +88,22 @@ struct Tile {
 
 impl Display for Tile {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        let c = match *self {
-            Tile {
-                visibility: Hidden(None),
-                ..
-            } => '#',
-            Tile {
-                visibility: Hidden(Flagged),
-                ..
-            } => '!',
-            Tile {
-                visibility: Hidden(FlaggedMaybe),
-                ..
-            } => '?',
-            Tile {
-                visibility: Show,
-                mine: Empty(neighbor_mines),
-            } => {
-                if neighbor_mines == 0 {
-                    '.'
-                } else {
-                    std::char::from_digit(neighbor_mines as u32, 10).unwrap()
+        let c = match self.visibility {
+            Hidden(flag) => match flag {
+                None => '#',
+                Flagged => '!',
+                FlaggedMaybe => '?',
+            },
+            Show => match self.mine {
+                Empty(neighbor_mines) => {
+                    if neighbor_mines == 0 {
+                        '.'
+                    } else {
+                        std::char::from_digit(neighbor_mines as u32, 10).unwrap()
+                    }
                 }
-            }
-            Tile {
-                visibility: Show,
-                mine: Mine,
-            } => '*',
+                Mine => '*',
+            },
         };
 
         f.write_char(c)
@@ -153,42 +144,53 @@ enum Action {
 
 #[derive(Default, Debug)]
 struct InputState {
-    cursor: (usize, usize),
+    cursor: (u16, u16),
     action: Option<Action>,
 }
 #[derive(Debug, Default)]
 struct Minesweeper {
     args: MinesweeperArgs,
+    win_state: WinState,
+    tiles: Vec<Tile>,
+    input_state: InputState,
+    flagged_tiles: u32,
+    shown_tiles: u32,
     text_top: &'static str,
     title: &'static str,
     text_bottom: &'static str,
-    tiles: Vec<Tile>,
-    win_state: WinState,
-    flagged_tiles: usize,
-    shown_tiles: usize,
-    input_state: InputState,
+    width_digits: usize,
+    height_digits: usize,
+    mines_digits: usize,
+    // utility struct to ensure it's only allocated once
+    point_stack: VecDeque<(u16, u16)>,
+}
+
+impl Minesweeper {
+    pub fn get_tile(&self, x: i16, y: i16) -> Option<&Tile> {
+        Self::_get_tile(&self.tiles, self.args.width, self.args.height, x, y)
+    }
 }
 
 impl Minesweeper {
     pub fn move_cursor(&mut self, dx: i32, dy: i32) {
         let (x, y) = &mut self.input_state.cursor;
         *x = if dx < 0 {
-            x.saturating_sub(-dx as usize)
+            x.saturating_sub(-dx as u16)
         } else {
-            min(self.args.width - 1, *x + dx as usize)
+            min(self.args.width - 1, *x + dx as u16)
         };
 
         *y = if dy < 0 {
-            y.saturating_sub(-dy as usize)
+            y.saturating_sub(-dy as u16)
         } else {
-            min(self.args.height - 1, *y + dy as usize)
+            min(self.args.height - 1, *y + dy as u16)
         };
     }
 }
 
 impl Display for Minesweeper {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        for line in self.tiles.chunks_exact(self.args.width) {
+        for line in self.tiles.chunks_exact(self.args.width as usize) {
             for cell in line {
                 write!(f, "{cell}")?;
             }
@@ -200,21 +202,25 @@ impl Display for Minesweeper {
 
 fn valid_neighbors(
     dirs: &[(i8, i8)],
-    x: usize,
-    y: usize,
-    w: usize,
-    h: usize,
-) -> impl Iterator<Item = (usize, usize)> {
+    x: u16,
+    y: u16,
+    w: u16,
+    h: u16,
+) -> impl Iterator<Item = (u16, u16)> {
     dirs.iter()
-        .map(move |(dx, dy)| (x as isize + *dx as isize, y as isize + *dy as isize))
-        .filter(move |(i, j)| (0..w as isize).contains(i) && (0..h as isize).contains(j))
-        .map(|(i, j)| (i as usize, j as usize))
+        .map(|(dx, dy)| (*dx as i16, *dy as i16))
+        .map(move |(dx, dy)| (x.saturating_add_signed(dx), y.saturating_add_signed(dy)))
+        .filter(move |(i, j)| (0..w).contains(i) && (0..h).contains(j))
 }
 
 impl Minesweeper {
     pub fn new(args: MinesweeperArgs) -> Self {
         let args = args.clamped();
-        let size = args.width * args.height;
+        let width = args.width;
+        let height = args.height;
+        let mines = args.mines;
+
+        let size = width as u32 * height as u32;
 
         const RETRY: &'static str = "(R)etry (Q)uit";
         const RETRY_SHORT: &'static str = "(R) (Q)";
@@ -223,23 +229,33 @@ impl Minesweeper {
         const TITLE: &'static str = "Minesweeper!";
         const TITLE_SHORT: &'static str = "mnswpr!!";
 
-        let title = if args.width < TITLE.len() {
+        let title = if args.width < TITLE.len() as u16 {
             TITLE_SHORT
         } else {
             TITLE
         };
-        let (text_top, text_bottom) = if args.width < max(RETRY.len(), NEXT.len()) {
+        let (text_top, text_bottom) = if args.width < max(RETRY.len(), NEXT.len()) as u16 {
             (RETRY_SHORT, NEXT_SHORT)
         } else {
             (RETRY, NEXT)
         };
 
+        let max_x = width - 1;
+        let width_digits = max_x.to_string().len();
+        let max_y = height - 1;
+        let height_digits = max_y.to_string().len();
+        let mines_digits = mines.to_string().len();
+
         Self {
             args,
-            tiles: vec![Tile::default(); size],
+            tiles: vec![Tile::default(); size as usize],
             title,
             text_top,
             text_bottom,
+            width_digits,
+            height_digits,
+            mines_digits,
+            point_stack: VecDeque::<(u16, u16)>::new(),
             ..Self::default()
         }
     }
@@ -248,7 +264,8 @@ impl Minesweeper {
         let Some(n) = self.input_state.action else {
             return;
         };
-        let (x, y) = self.input_state.cursor;
+        let cursor @ (xu, yu) = self.input_state.cursor;
+        let (x, y) = (xu as i16, yu as i16);
         match n {
             ShowTile => self.show_tile(x, y),
             FlagTile => self.flag_tile(x, y),
@@ -259,71 +276,96 @@ impl Minesweeper {
             }
             Restart => {
                 *self = Self::new(self.args);
-                self.input_state.cursor = (x, y)
+                self.input_state.cursor = cursor
             }
             Next => {
                 self.args.mines += self.args.mines / 5 + 1;
                 *self = Self::new(self.args);
-                self.input_state.cursor = (x, y)
+                self.input_state.cursor = cursor
             }
             Previous => {
                 self.args.mines -= self.args.mines / 6 + 1;
                 *self = Self::new(self.args);
-                self.input_state.cursor = (x, y)
+                self.input_state.cursor = cursor
             }
             Resize(dx, dy) => {
-                self.args.width = self.args.width.saturating_add_signed(dx as isize);
-                self.args.height = self.args.height.saturating_add_signed(dy as isize);
+                self.args.width = self.args.width.saturating_add_signed(dx as i16);
+                self.args.height = self.args.height.saturating_add_signed(dy as i16);
                 *self = Self::new(self.args);
                 self.input_state.cursor = (
-                    x.clamp(0, self.args.width - 1),
-                    y.clamp(0, self.args.height - 1),
+                    xu.clamp(0, self.args.width - 1),
+                    yu.clamp(0, self.args.height - 1),
                 )
             }
             IncrementMines(sign) => {
-                self.args.mines = self.args.mines.saturating_add_signed(sign as isize);
+                self.args.mines = self.args.mines.saturating_add_signed(sign as i32);
                 *self = Self::new(self.args);
-                self.input_state.cursor = (x, y)
+                self.input_state.cursor = cursor
             }
         };
 
         self.input_state.action = Option::None;
     }
 
-    fn set_mine(&mut self, x: usize, y: usize) {
-        let tile = &mut self[y][x].mine;
+    fn set_mine(&mut self, x: i16, y: i16) {
+        let w = self.args.width;
+        let h = self.args.height;
 
-        *tile = match *tile {
-            Mine => return,
-            _ => Mine,
+        // match empty tile
+        let Some(Tile {
+            mine: mine @ Empty(_),
+            ..
+        }) = &mut Self::_get_tile_mut(&mut self.tiles, w, h, x, y)
+        else {
+            return;
         };
-        for (i, j) in valid_neighbors(&DIRS_8, x, y, self.args.width, self.args.height) {
-            let mine: &mut MineState = &mut self[j][i].mine;
-            match mine {
-                Empty(count) => *count += 1,
-                Mine => continue,
-            }
+
+        *mine = Mine;
+        for (dx, dy) in DIRS_8 {
+            let (i, j) = (x + dx as i16, y + dy as i16);
+            let Some(Tile {
+                mine: Empty(count), ..
+            }) = &mut Self::_get_tile_mut(&mut self.tiles, w, h, i, j)
+            else {
+                continue;
+            };
+            *count += 1
         }
     }
 
-    fn show_tile(&mut self, x: usize, y: usize) {
-        if let Untouched = self.win_state {
-            let x = x.clamp(1, self.args.width - 2);
-            let y = y.clamp(1, self.args.height - 2);
-            let size = self.tiles.len();
-            let whitelisted = valid_neighbors(&DIRS_9, x, y, self.args.width, self.args.height)
-                .map(|(x, y)| y * self.args.width + x);
-            let mines = make_random_holes(whitelisted, size - self.args.mines, 0..size);
+    fn show_tile(&mut self, x: i16, y: i16) {
+        let w = self.args.width;
+        let h = self.args.height;
 
-            for i in mines {
-                self.set_mine(i % self.args.width, i / self.args.width);
+        if let Untouched = self.win_state {
+            let x = x.clamp(1, w as i16 - 2) as u16;
+            let y = y.clamp(1, h as i16 - 2) as u16;
+            let whitelisted = valid_neighbors(&DIRS_9, x, y, w, h);
+
+            let size = w as usize * h as usize;
+            let mine_grid = fill_random(
+                whitelisted.map(|(x, y)| x as usize + y as usize * w as usize),
+                size,
+                self.args.mines as usize,
+                false,
+                true,
+            );
+
+            for (i, _) in mine_grid
+                .iter()
+                .enumerate()
+                .filter(|(_, is_mine)| **is_mine)
+            {
+                self.set_mine((i % w as usize) as i16, (i / w as usize) as i16);
             }
             self.win_state = Ongoing
         }
 
         let Ongoing = self.win_state else { return };
 
-        let tile = Self::get_tile(&mut self.tiles, self.args.width, x, y);
+        let Some(tile) = Self::_get_tile_mut(&mut self.tiles, w, h, x, y) else {
+            return;
+        };
         if let Show | Hidden(Flagged) = tile.visibility {
             return;
         }
@@ -341,23 +383,40 @@ impl Minesweeper {
             self.win_state = Lost;
             return;
         }
-
-        let mut stack = VecDeque::<(usize, usize)>::new();
-        stack.push_back((x, y));
-        let w = self.args.width;
+        let w = w;
         let h = self.args.height;
 
-        while let Some((x, y)) = stack.pop_back() {
-            let tile = Self::get_tile(&mut self.tiles, w, x, y);
+        // Self::fill_8_way_stack(
+        //     x,
+        //     y,
+        //     |x, y| {
+        //         Self::_get_tile(&mut self.tiles, w, h, x, y);
+        //     },
+        //     |x, y| true,
+        // );
+
+        (&mut self.point_stack).push_back((x as u16, y as u16));
+
+        while let Some((xu, yu)) = (&mut self.point_stack).pop_front() {
+            let (x, y) = (xu as i16, yu as i16);
+            let Some(tile) = Self::_get_tile_mut(&mut self.tiles, w, h, x, y) else {
+                continue;
+            };
 
             match tile.mine {
                 Empty(0) => {
                     // expand
-                    for (i, j) in valid_neighbors(&DIRS_8, x, y, w, h) {
-                        let tile = Self::get_tile(&mut self.tiles, w, i, j);
+                    for (dx, dy) in DIRS_8 {
+                        let (i, j) = (x + dx as i16, y + dy as i16);
+                        let Some(tile) = Self::_get_tile_mut(&mut self.tiles, w, h, i, j) else {
+                            continue;
+                        };
                         let Hidden(_) = tile.visibility else { continue };
+                        let flagged_tiles = &mut self.flagged_tiles;
+                        let shown_tiles = &mut self.shown_tiles;
                         Self::_show_tile(&mut tile.visibility, flagged_tiles, shown_tiles);
-                        stack.push_back((i, j))
+                        (&mut self.point_stack).push_back((i as u16, j as u16));
+                        //log::info!("\n{self}");
                     }
                 }
 
@@ -365,13 +424,17 @@ impl Minesweeper {
             }
         }
 
-        if self.shown_tiles + self.args.mines == self.args.width * self.args.height {
+        if self.shown_tiles + self.args.mines == w as u32 * self.args.height as u32 {
             self.win_state = Won
         }
     }
 
-    pub fn clear_flag(&mut self, x: usize, y: usize) {
-        let tile = Self::get_tile(&mut self.tiles, self.args.width, x, y);
+    pub fn clear_flag(&mut self, x: i16, y: i16) {
+        let Some(tile) =
+            Self::_get_tile_mut(&mut self.tiles, self.args.width, self.args.height, x, y)
+        else {
+            return;
+        };
         match tile.visibility {
             Show => return,
             Hidden(flag) => {
@@ -383,8 +446,12 @@ impl Minesweeper {
         }
     }
 
-    pub fn flag_tile(&mut self, x: usize, y: usize) {
-        let tile = Self::get_tile(&mut self.tiles, self.args.width, x, y);
+    pub fn flag_tile(&mut self, x: i16, y: i16) {
+        let w = self.args.width;
+        let h = self.args.height;
+        let Some(tile) = Self::_get_tile_mut(&mut self.tiles, w, h, x, y) else {
+            return;
+        };
         let Hidden(flag) = tile.visibility else {
             return;
         };
@@ -402,7 +469,7 @@ impl Minesweeper {
         }
         tile.visibility = Hidden(flag);
     }
-    fn _show_tile(visibility: &mut Visibility, flagged_tiles: &mut usize, shown_tiles: &mut usize) {
+    fn _show_tile(visibility: &mut Visibility, flagged_tiles: &mut u32, shown_tiles: &mut u32) {
         match visibility {
             Hidden(f) => {
                 if let Flagged = f {
@@ -424,47 +491,67 @@ impl Minesweeper {
         }
     }
 
-    fn get_tile(vec: &mut [Tile], w: usize, x: usize, y: usize) -> &mut Tile {
-        &mut vec[x + y * w]
+    fn _get_tile_mut(vec: &mut [Tile], w: u16, h: u16, x: i16, y: i16) -> Option<&mut Tile> {
+        if !(0..w as i16).contains(&x) || !(0..h as i16).contains(&y) {
+            Option::None
+        } else {
+            Some(&mut vec[x as usize + y as usize * w as usize])
+        }
+    }
+
+    fn _get_tile(vec: &[Tile], w: u16, h: u16, x: i16, y: i16) -> Option<&Tile> {
+        if !(0..w as i16).contains(&x) || !(0..h as i16).contains(&y) {
+            Option::None
+        } else {
+            Some(&vec[x as usize + y as usize * w as usize])
+        }
     }
 }
 
-fn make_random_holes(
+fn fill_random<T: PartialEq + Copy>(
     whitelisted: impl Iterator<Item = usize>,
-    holes_to_make: usize,
-    range: Range<usize>,
-) -> Vec<usize> {
-    let mut ret: Vec<usize> = Vec::from_iter(range);
+    size: usize,
+    fills: usize,
+    init_value: T,
+    value: T,
+) -> Vec<T> {
+    let mut whitelisted: BTreeSet<usize> = BTreeSet::from_iter(whitelisted);
+    let (fills, init_value, value, flip) = if fills > size / 2 {
+        (size - fills - whitelisted.len(), value, init_value, true)
+    } else {
+        (fills, init_value, value, false)
+    };
 
-    let mut whitelisted_count = 0;
-    for i in whitelisted {
-        ret.iter().position(|&n| n == i).map(|it| ret.remove(it));
-        whitelisted_count += 1;
+    let mut ret = vec![init_value; size];
+
+    if flip {
+        for wl in &whitelisted {
+            ret[*wl] = value
+        }
     }
 
-    for _ in 0..holes_to_make - whitelisted_count {
-        let n = rand::rng().next_u32() as usize % ret.len();
-        ret.remove(n);
+    for _ in 0..fills {
+        let mut r = rand::rng().next_u32() as usize % (ret.len() - whitelisted.len());
+
+        for wl in whitelisted.iter() {
+            r = if *wl <= r { r + 1 } else { break };
+        }
+        ret[r] = value;
+        whitelisted.insert(r);
     }
+
     ret
-}
-
-impl Index<usize> for Minesweeper {
-    type Output = [Tile];
-    fn index(&self, index: usize) -> &Self::Output {
-        let start = index * self.args.width;
-        &self.tiles[start..start + self.args.width]
-    }
-}
-impl IndexMut<usize> for Minesweeper {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        let start = index * self.args.width;
-        &mut self.tiles[start..start + self.args.width]
-    }
 }
 
 fn main() {
     let args = MinesweeperArgs::parse();
+    // WriteLogger::init(
+    //     LevelFilter::Info,
+    //     Config::default(),
+    //     File::create("debug.log").unwrap(),
+    // )
+    // .unwrap();
+    // log::info!("This will go to a file");
     ui::main(args).unwrap()
 }
 
@@ -523,6 +610,7 @@ mod ui {
             while self.running {
                 terminal.draw(|frame| self.render(frame))?;
                 self.handle_crossterm_events()?;
+                self.game.update();
             }
 
             std::io::stdout().execute(event::DisableMouseCapture)?;
@@ -536,8 +624,6 @@ mod ui {
         /// - <https://docs.rs/ratatui/latest/ratatui/widgets/index.html>
         /// - <https://github.com/ratatui/ratatui/tree/main/ratatui-widgets/examples>
         fn render(&mut self, frame: &mut Frame) {
-            self.game.update();
-
             let Minesweeper {
                 args:
                     MinesweeperArgs {
@@ -552,6 +638,9 @@ mod ui {
                 title,
                 input_state: InputState { cursor: (x, y), .. },
                 flagged_tiles,
+                width_digits,
+                height_digits,
+                mines_digits,
                 ..
             } = self.game;
 
@@ -569,17 +658,11 @@ mod ui {
                     Line::from(text_bottom).bold().light_red().centered(),
                 ),
                 _ => {
-                    let max_x = width - 1;
-                    let width_digits = max_x.to_string().len();
-                    let max_y = height - 1;
-                    let height_digits = max_y.to_string().len();
-                    let mines_digits = mines.to_string().len();
-
                     let mut stats = format!(
                         "{:mines_digits$}/{} ({:width_digits$},{:height_digits$}) {}x{}",
                         flagged_tiles, mines, x, y, width, height
                     );
-                    if stats.len() > width {
+                    if stats.len() as u16 > width {
                         stats = format!("{} {},{}", mines - flagged_tiles, x, y);
                     }
 
@@ -589,9 +672,7 @@ mod ui {
                     )
                 }
             };
-            let area = frame
-                .area()
-                .clamp(Rect::new(0, 0, width as u16 + 2, height as u16 + 2));
+            let area = frame.area().clamp(Rect::new(0, 0, width + 2, height + 2));
 
             frame.render_widget(
                 Paragraph::new("")
@@ -606,7 +687,10 @@ mod ui {
 
             for j in area.y + 1..area.y + area.height - 1 {
                 for i in area.x + 1..area.x + area.width - 1 {
-                    let tile = self.game[(j - 1) as usize][(i - 1) as usize];
+                    //                    let tile = self.game[(j - 1) as usize][(i - 1) as usize];
+                    let Some(tile) = self.game.get_tile(i as i16 - 1, j as i16 - 1) else {
+                        continue;
+                    };
 
                     const HIDDEN_COLOR: Color = Reset;
                     const WARN_COLOR: Color = LightYellow;
@@ -623,8 +707,8 @@ mod ui {
                             MineState::Empty(n) => match n {
                                 0 => (' ', Black, Reset),
                                 1 => ('1', LightBlue, NUM_COLOR),
-                                2 => ('2', LightGreen, NUM_COLOR),
-                                3 => ('3', LightCyan, NUM_COLOR),
+                                2 => ('2', LightCyan, NUM_COLOR),
+                                3 => ('3', LightGreen, NUM_COLOR),
                                 4 => ('4', LightYellow, NUM_COLOR),
                                 5 => ('5', LightMagenta, NUM_COLOR2),
                                 6 => ('6', Gray, NUM_COLOR2),
@@ -638,13 +722,13 @@ mod ui {
                     let w = frame.area().width;
                     let mut c = Cell::new("");
                     c.set_char(char).set_fg(fg).set_bg(bg);
-                    frame.buffer_mut().content[(w * j + i) as usize] = c;
+                    frame.buffer_mut().content[w as usize * j as usize + i as usize] = c;
                 }
             }
 
             frame.set_cursor_position(Position {
-                x: self.game.input_state.cursor.0 as u16 + 1,
-                y: self.game.input_state.cursor.1 as u16 + 1,
+                x: self.game.input_state.cursor.0 + 1,
+                y: self.game.input_state.cursor.1 + 1,
             });
         }
 
@@ -654,13 +738,12 @@ mod ui {
                 Event::Key(key) if key.kind == KeyEventKind::Press => self.on_key_event(key),
                 Event::Mouse(m) => match m.kind {
                     MouseEventKind::Down(button) => 'block: {
-                        if !(1..self.game.args.width as u16 + 1).contains(&m.column)
-                            || !(1..self.game.args.height as u16 + 1).contains(&m.row)
+                        if !(1..self.game.args.width + 1).contains(&m.column)
+                            || !(1..self.game.args.height + 1).contains(&m.row)
                         {
                             break 'block;
                         }
-                        self.game.input_state.cursor =
-                            ((m.column - 1) as usize, (m.row - 1) as usize);
+                        self.game.input_state.cursor = (m.column - 1, m.row - 1);
                         match button {
                             MouseButton::Left => self.game.input_state.action = Some(ShowTile),
                             MouseButton::Right | MouseButton::Middle => {
@@ -736,4 +819,10 @@ mod ui {
             self.running = false;
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test() {}
 }

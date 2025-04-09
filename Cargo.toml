@@ -9,6 +9,11 @@ crossterm = "0.29.0"
 ratatui = "0.29.0"
 color-eyre = "0.6.3"
 clap = { version = "4.5.35", features = ["derive"] }
+log = "0.4.27"
+simplelog = "0.12.2"
+
+[dev-dependencies]
+# test-log = { version = "0.2.17", features = ["trace", "color"] }
 
 [profile.release]
 opt-level = "z"         # Optimize for size ("z" is more aggressive than "s")
