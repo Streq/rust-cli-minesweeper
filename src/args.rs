@@ -8,10 +8,10 @@ pub struct MinesweeperArgs {
     #[arg(short = 'x', long, default_value_t = 32)]
     pub width: u16,
     /// height
-    #[arg(short = 'y', long, default_value_t = 18)]
+    #[arg(short = 'y', long, default_value_t = 16)]
     pub height: u16,
     /// amount of mines
-    #[arg(short, long, default_value_t = 10)]
+    #[arg(short, long, default_value_t = 100)]
     pub mines: u32,
 }
 
