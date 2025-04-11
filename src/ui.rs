@@ -14,8 +14,8 @@ use crossterm::event::{
 };
 use ratatui::buffer::Cell;
 use ratatui::layout::{Position, Rect};
-use ratatui::style::Color;
 use ratatui::style::Color::*;
+use ratatui::style::{Color, Modifier};
 use ratatui::{
     DefaultTerminal, Frame,
     style::Stylize,
@@ -148,36 +148,37 @@ impl App {
                     continue;
                 };
 
-                const HIDDEN_COLOR: Color = Reset;
-                const WARN_COLOR: Color = LightYellow;
+                const HIDDEN_COLOR: Color = Gray;
+                const WARN_COLOR: Color = Gray;
                 const NUM_COLOR: Color = Black;
                 const NUM_COLOR2: Color = Black;
 
-                let (char, bg, fg) = match tile.visibility {
+                let (char, fg, bg, modifier) = match tile.visibility {
                     Hidden(f) => match f {
-                        None => ('#', Reset, HIDDEN_COLOR),
-                        Flagged => ('!', LightRed, WARN_COLOR),
-                        FlaggedMaybe => ('?', LightRed, WARN_COLOR),
+                        None => ('#', Black, HIDDEN_COLOR, Modifier::empty()),
+                        Flagged => ('!', Red, LightYellow, Modifier::BOLD),
+                        FlaggedMaybe => ('?', Black, WARN_COLOR, Modifier::BOLD),
                     },
                     Show => match tile.content {
                         TileContent::Empty(n) => match n {
-                            0 => (' ', Black, Reset),
-                            1 => ('1', LightBlue, NUM_COLOR),
-                            2 => ('2', LightCyan, NUM_COLOR),
-                            3 => ('3', LightGreen, NUM_COLOR),
-                            4 => ('4', LightYellow, NUM_COLOR),
-                            5 => ('5', LightMagenta, NUM_COLOR2),
-                            6 => ('6', Gray, NUM_COLOR2),
-                            7 => ('7', White, NUM_COLOR2),
-                            8.. => ('8', LightRed, NUM_COLOR2),
+                            0 => (' ', Reset, Reset, Modifier::empty()),
+                            1 => ('1', LightBlue, NUM_COLOR, Modifier::empty()),
+                            2 => ('2', LightGreen, NUM_COLOR, Modifier::empty()),
+                            3 => ('3', LightRed, NUM_COLOR, Modifier::empty()),
+                            4 => ('4', Blue, NUM_COLOR, Modifier::empty()),
+                            5 => ('5', Red, NUM_COLOR2, Modifier::empty()),
+                            6 => ('6', Cyan, NUM_COLOR2, Modifier::empty()),
+                            7 => ('7', Gray, NUM_COLOR2, Modifier::empty()),
+                            8.. => ('8', White, NUM_COLOR2, Modifier::empty()),
                         },
-                        TileContent::Mine => ('*', Black, LightRed),
+                        TileContent::Mine => ('*', LightRed, Black, Modifier::BOLD),
                     },
                 };
 
                 let w = frame.area().width;
                 let mut c = Cell::new("");
                 c.set_char(char).set_fg(fg).set_bg(bg);
+                c.modifier = modifier;
                 frame.buffer_mut().content[w as usize * j as usize + i as usize] = c;
             }
         }
