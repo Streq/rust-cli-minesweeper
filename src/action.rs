@@ -2,8 +2,8 @@ use crate::util::Unit;
 
 #[derive(Copy, Clone, Debug)]
 pub enum Action {
-    ShowTile,
-    FlagTile,
+    OpenCell,
+    FlagCell,
     ClearFlag,
     Surrender,
     Restart,

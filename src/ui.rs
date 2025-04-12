@@ -202,9 +202,9 @@ impl App {
                     }
                     self.game.input_state.cursor = (m.column - 1, m.row - 1);
                     match button {
-                        MouseButton::Left => self.game.input_state.action = Some(ShowTile),
+                        MouseButton::Left => self.game.input_state.action = Some(OpenCell),
                         MouseButton::Right | MouseButton::Middle => {
-                            self.game.input_state.action = Some(FlagTile)
+                            self.game.input_state.action = Some(FlagCell)
                         }
                     };
                 }
@@ -235,10 +235,10 @@ impl App {
                 self.game.input_state.action = Some(Previous);
             }
             (_, KeyCode::Char('x' | ' ')) => {
-                self.game.input_state.action = Some(ShowTile);
+                self.game.input_state.action = Some(OpenCell);
             }
             (_, KeyCode::Char('z' | 'f')) => {
-                self.game.input_state.action = Some(FlagTile);
+                self.game.input_state.action = Some(FlagCell);
             }
             (_, KeyCode::Backspace) => {
                 self.game.input_state.action = Some(ClearFlag);

@@ -90,8 +90,8 @@ impl Minesweeper {
         let cursor @ (xu, yu) = self.input_state.cursor;
         let (x, y) = (xu as i16, yu as i16);
         match n {
-            ShowTile => self.show_tile(x, y),
-            FlagTile => self.flag_tile(x, y),
+            OpenCell => self.show_tile(x, y),
+            FlagCell => self.flag_tile(x, y),
             ClearFlag => self.clear_flag(x, y),
             Surrender => {
                 self.show_all();
@@ -209,15 +209,6 @@ impl Minesweeper {
         }
         let w = w;
         let h = self.args.height;
-
-        // Self::fill_8_way_stack(
-        //     x,
-        //     y,
-        //     |x, y| {
-        //         Self::_get_tile(&mut self.tiles, w, h, x, y);
-        //     },
-        //     |x, y| true,
-        // );
 
         (&mut self.point_stack).push_back((x as u16, y as u16));
 
