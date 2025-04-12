@@ -89,6 +89,11 @@ impl Minesweeper {
         };
         let cursor @ (xu, yu) = self.input_state.cursor;
         let (x, y) = (xu as i16, yu as i16);
+        let MinesweeperArgs {
+            mines,
+            width: w,
+            height: h,
+        } = self.args;
         match n {
             OpenCell => self.show_tile(x, y),
             FlagCell => self.flag_tile(x, y),
@@ -101,13 +106,15 @@ impl Minesweeper {
                 *self = Self::new(self.args);
                 self.input_state.cursor = cursor
             }
-            Next => {
-                self.args.mines += self.args.mines / 5 + 1;
-                *self = Self::new(self.args);
-                self.input_state.cursor = cursor
-            }
-            Previous => {
-                self.args.mines -= self.args.mines / 6 + 1;
+            IncrementMinesPercent(unit) => {
+                let size: u32 = w as u32 * h as u32;
+                let hundredth = max(1, size / 100);
+                let increment = unit as i32;
+                self.args.mines = if increment > 0 {
+                    (mines + 1).next_multiple_of(hundredth)
+                } else {
+                    mines.saturating_sub(hundredth).next_multiple_of(hundredth)
+                };
                 *self = Self::new(self.args);
                 self.input_state.cursor = cursor
             }

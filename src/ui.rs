@@ -149,27 +149,26 @@ impl App {
                 };
 
                 const HIDDEN_COLOR: Color = Gray;
-                const WARN_COLOR: Color = Gray;
-                const NUM_COLOR: Color = Black;
-                const NUM_COLOR2: Color = Black;
+                const WARN_COLOR: Color = LightYellow;
+                const CLEAR_COLOR: Color = Black;
 
                 let (char, fg, bg, modifier) = match tile.visibility {
                     Hidden(f) => match f {
                         None => ('#', Black, HIDDEN_COLOR, Modifier::empty()),
-                        Flagged => ('!', Red, LightYellow, Modifier::BOLD),
-                        FlaggedMaybe => ('?', Black, WARN_COLOR, Modifier::BOLD),
+                        Flagged => ('!', Black, WARN_COLOR, Modifier::BOLD),
+                        FlaggedMaybe => ('?', Black, Yellow, Modifier::BOLD),
                     },
                     Show => match tile.content {
                         TileContent::Empty(n) => match n {
-                            0 => (' ', Reset, Reset, Modifier::empty()),
-                            1 => ('1', LightBlue, NUM_COLOR, Modifier::empty()),
-                            2 => ('2', LightGreen, NUM_COLOR, Modifier::empty()),
-                            3 => ('3', LightRed, NUM_COLOR, Modifier::empty()),
-                            4 => ('4', Blue, NUM_COLOR, Modifier::empty()),
-                            5 => ('5', Red, NUM_COLOR2, Modifier::empty()),
-                            6 => ('6', Cyan, NUM_COLOR2, Modifier::empty()),
-                            7 => ('7', Gray, NUM_COLOR2, Modifier::empty()),
-                            8.. => ('8', White, NUM_COLOR2, Modifier::empty()),
+                            0 => (' ', Reset, CLEAR_COLOR, Modifier::empty()),
+                            1 => ('1', LightBlue, CLEAR_COLOR, Modifier::empty()),
+                            2 => ('2', LightGreen, CLEAR_COLOR, Modifier::empty()),
+                            3 => ('3', LightRed, CLEAR_COLOR, Modifier::empty()),
+                            4 => ('4', Blue, CLEAR_COLOR, Modifier::empty()),
+                            5 => ('5', Red, CLEAR_COLOR, Modifier::empty()),
+                            6 => ('6', Cyan, CLEAR_COLOR, Modifier::empty()),
+                            7 => ('7', Gray, CLEAR_COLOR, Modifier::empty()),
+                            8.. => ('8', White, CLEAR_COLOR, Modifier::empty()),
                         },
                         TileContent::Mine => ('*', LightRed, Black, Modifier::BOLD),
                     },
@@ -229,10 +228,10 @@ impl App {
                 self.game.input_state.action = Some(Restart);
             }
             (_, KeyCode::Char('n')) => {
-                self.game.input_state.action = Some(Next);
+                self.game.input_state.action = Some(IncrementMinesPercent(Positive));
             }
             (_, KeyCode::Char('p')) => {
-                self.game.input_state.action = Some(Previous);
+                self.game.input_state.action = Some(IncrementMinesPercent(Negative));
             }
             (_, KeyCode::Char('x' | ' ')) => {
                 self.game.input_state.action = Some(OpenCell);

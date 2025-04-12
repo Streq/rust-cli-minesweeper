@@ -7,8 +7,7 @@ pub enum Action {
     ClearFlag,
     Surrender,
     Restart,
-    Next,
-    Previous,
+    IncrementMinesPercent(Unit),
     Resize(Unit, Unit),
     IncrementMines(Unit),
 }
