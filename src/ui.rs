@@ -93,7 +93,7 @@ impl App {
             text_bottom,
             title,
             input_state: InputState { cursor: (x, y), .. },
-            flagged_tiles,
+            flagged_cells: flagged_tiles,
             width_digits,
             height_digits,
             mines_digits,

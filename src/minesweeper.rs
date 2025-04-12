@@ -19,10 +19,10 @@ use std::fmt::{Display, Formatter};
 pub struct Minesweeper {
     pub args: MinesweeperArgs,
     pub win_state: WinState,
-    pub tiles: Vec<Tile>,
+    pub cells: Vec<Tile>,
     pub input_state: InputState,
-    pub flagged_tiles: u32,
-    pub shown_tiles: u32,
+    pub flagged_cells: u32,
+    pub open_cells: u32,
 
     // display fields, maybe should be moved somewhere else
     pub text_top: &'static str,
@@ -71,7 +71,7 @@ impl Minesweeper {
 
         Self {
             args,
-            tiles: vec![Tile::default(); size as usize],
+            cells: vec![Tile::default(); size as usize],
             title,
             text_top,
             text_bottom,
@@ -145,7 +145,7 @@ impl Minesweeper {
         let Some(Tile {
             content: mine @ Empty(_),
             ..
-        }) = &mut Self::_get_tile_mut(&mut self.tiles, w, h, x, y)
+        }) = &mut Self::_get_tile_mut(&mut self.cells, w, h, x, y)
         else {
             return;
         };
@@ -156,7 +156,7 @@ impl Minesweeper {
             let Some(Tile {
                 content: Empty(count),
                 ..
-            }) = &mut Self::_get_tile_mut(&mut self.tiles, w, h, i, j)
+            }) = &mut Self::_get_tile_mut(&mut self.cells, w, h, i, j)
             else {
                 continue;
             };
@@ -194,20 +194,20 @@ impl Minesweeper {
 
         let Ongoing = self.win_state else { return };
 
-        let Some(tile) = Self::_get_tile_mut(&mut self.tiles, w, h, x, y) else {
+        let Some(tile) = Self::_get_tile_mut(&mut self.cells, w, h, x, y) else {
             return;
         };
         if let Show | Hidden(Flagged) = tile.visibility {
             return;
         }
 
-        let flagged_tiles = &mut self.flagged_tiles;
-        let shown_tiles = &mut self.shown_tiles;
+        let flagged_tiles = &mut self.flagged_cells;
+        let shown_tiles = &mut self.open_cells;
         Self::_show_tile(&mut tile.visibility, flagged_tiles, shown_tiles);
 
         if let Mine = tile.content {
             // explode
-            for tile in &mut self.tiles {
+            for tile in &mut self.cells {
                 let Mine = tile.content else { continue };
                 Self::_show_tile(&mut tile.visibility, flagged_tiles, shown_tiles);
             }
@@ -221,7 +221,7 @@ impl Minesweeper {
 
         while let Some((xu, yu)) = (&mut self.point_stack).pop_front() {
             let (x, y) = (xu as i16, yu as i16);
-            let Some(tile) = Self::_get_tile_mut(&mut self.tiles, w, h, x, y) else {
+            let Some(tile) = Self::_get_tile_mut(&mut self.cells, w, h, x, y) else {
                 continue;
             };
 
@@ -230,12 +230,12 @@ impl Minesweeper {
                     // expand
                     for (dx, dy) in DIRS_8 {
                         let (i, j) = (x + dx as i16, y + dy as i16);
-                        let Some(tile) = Self::_get_tile_mut(&mut self.tiles, w, h, i, j) else {
+                        let Some(tile) = Self::_get_tile_mut(&mut self.cells, w, h, i, j) else {
                             continue;
                         };
                         let Hidden(_) = tile.visibility else { continue };
-                        let flagged_tiles = &mut self.flagged_tiles;
-                        let shown_tiles = &mut self.shown_tiles;
+                        let flagged_tiles = &mut self.flagged_cells;
+                        let shown_tiles = &mut self.open_cells;
                         Self::_show_tile(&mut tile.visibility, flagged_tiles, shown_tiles);
                         (&mut self.point_stack).push_back((i as u16, j as u16));
                         //log::info!("\n{self}");
@@ -246,14 +246,14 @@ impl Minesweeper {
             }
         }
 
-        if self.shown_tiles + self.args.mines == w as u32 * self.args.height as u32 {
+        if self.open_cells + self.args.mines == w as u32 * self.args.height as u32 {
             self.win_state = Won
         }
     }
 
     pub fn clear_flag(&mut self, x: i16, y: i16) {
         let Some(tile) =
-            Self::_get_tile_mut(&mut self.tiles, self.args.width, self.args.height, x, y)
+            Self::_get_tile_mut(&mut self.cells, self.args.width, self.args.height, x, y)
         else {
             return;
         };
@@ -261,7 +261,7 @@ impl Minesweeper {
             Show => return,
             Hidden(flag) => {
                 if let Flagged = flag {
-                    self.flagged_tiles -= 1;
+                    self.flagged_cells -= 1;
                 }
                 tile.visibility = Hidden(None);
             }
@@ -271,38 +271,38 @@ impl Minesweeper {
     pub fn flag_tile(&mut self, x: i16, y: i16) {
         let w = self.args.width;
         let h = self.args.height;
-        let Some(tile) = Self::_get_tile_mut(&mut self.tiles, w, h, x, y) else {
+        let Some(tile) = Self::_get_tile_mut(&mut self.cells, w, h, x, y) else {
             return;
         };
         let Hidden(flag) = tile.visibility else {
             return;
         };
         if let Flagged = flag {
-            self.flagged_tiles -= 1;
+            self.flagged_cells -= 1;
         }
 
         let mut flag = flag.next();
         if let Flagged = flag {
-            if self.flagged_tiles == self.args.mines {
+            if self.flagged_cells == self.args.mines {
                 flag = flag.next();
             } else {
-                self.flagged_tiles += 1;
+                self.flagged_cells += 1;
             }
         }
         tile.visibility = Hidden(flag);
     }
     pub fn show_all(&mut self) {
-        for tile in &mut self.tiles {
+        for tile in &mut self.cells {
             Self::_show_tile(
                 &mut tile.visibility,
-                &mut self.flagged_tiles,
-                &mut self.shown_tiles,
+                &mut self.flagged_cells,
+                &mut self.open_cells,
             );
         }
     }
 
     pub fn get_tile(&self, x: i16, y: i16) -> Option<&Tile> {
-        Self::_get_tile(&self.tiles, self.args.width, self.args.height, x, y)
+        Self::_get_tile(&self.cells, self.args.width, self.args.height, x, y)
     }
     pub fn move_cursor(&mut self, dx: i32, dy: i32) {
         let (x, y) = &mut self.input_state.cursor;
@@ -353,7 +353,7 @@ impl Minesweeper {
 
 impl Display for Minesweeper {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        for line in self.tiles.chunks_exact(self.args.width as usize) {
+        for line in self.cells.chunks_exact(self.args.width as usize) {
             for cell in line {
                 write!(f, "{cell}")?;
             }
