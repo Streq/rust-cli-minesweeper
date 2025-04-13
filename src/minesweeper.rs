@@ -1,14 +1,12 @@
 use crate::action::Action::*;
-use crate::action::Action::*;
 use crate::action::DebugAction::*;
 use crate::action::GameAction::*;
 use crate::action::RestartAction::*;
-use crate::action::{DebugAction, RestartAction};
 use crate::args::MinesweeperArgs;
-use crate::flag::Flag::*;
-use crate::input_state::InputState;
 use crate::cell::Cell;
 use crate::cell_content::CellContent::*;
+use crate::flag::Flag::*;
+use crate::input_state::InputState;
 use crate::tile_visibility::TileVisibility;
 use crate::tile_visibility::TileVisibility::*;
 use crate::util::*;
