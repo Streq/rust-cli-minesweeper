@@ -8,6 +8,6 @@ pub enum TileVisibility {
 
 impl Default for TileVisibility {
     fn default() -> Self {
-        Self::Hidden(Flag::None)
+        Self::Hidden(Flag::Clear)
     }
 }

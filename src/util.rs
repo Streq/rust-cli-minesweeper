@@ -26,3 +26,9 @@ pub enum Unit {
     Zero = 0,
     Positive = 1,
 }
+
+#[derive(Copy, Clone, Debug)]
+pub enum Sign {
+    Negative = -1,
+    Positive = 1,
+}

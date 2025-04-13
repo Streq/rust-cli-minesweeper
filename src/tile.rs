@@ -16,7 +16,7 @@ impl Display for Tile {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let c = match self.visibility {
             Hidden(flag) => match flag {
-                None => '#',
+                Clear => '#',
                 Flagged => '!',
                 FlaggedMaybe => '?',
             },

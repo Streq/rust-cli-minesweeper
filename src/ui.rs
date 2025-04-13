@@ -1,11 +1,13 @@
 use crate::action::Action::*;
+use crate::action::GameAction::{ClearFlag, FlagCell, OpenCell, Surrender};
+use crate::action::RestartAction::{IncrementMines, IncrementMinesPercent, ResizeH, ResizeV};
 use crate::args::MinesweeperArgs;
 use crate::flag::Flag::*;
 use crate::input_state::InputState;
 use crate::minesweeper::Minesweeper;
 use crate::tile_content::TileContent;
 use crate::tile_visibility::TileVisibility::*;
-use crate::util::Unit::{Negative, Positive, Zero};
+use crate::util::Sign::*;
 use crate::win_state::WinState;
 use color_eyre::Result;
 use crossterm::ExecutableCommand;
@@ -143,8 +145,7 @@ impl App {
 
         for j in area.y + 1..area.y + area.height - 1 {
             for i in area.x + 1..area.x + area.width - 1 {
-                //                    let tile = self.game[(j - 1) as usize][(i - 1) as usize];
-                let Some(tile) = self.game.get_tile(i as i16 - 1, j as i16 - 1) else {
+                let Some(tile) = self.game.get_tile(i - 1, j - 1) else {
                     continue;
                 };
 
@@ -154,7 +155,7 @@ impl App {
 
                 let (char, fg, bg, modifier) = match tile.visibility {
                     Hidden(f) => match f {
-                        None => ('#', Black, HIDDEN_COLOR, Modifier::empty()),
+                        Clear => ('#', Black, HIDDEN_COLOR, Modifier::empty()),
                         Flagged => ('!', Black, WARN_COLOR, Modifier::BOLD),
                         FlaggedMaybe => ('?', Black, Yellow, Modifier::BOLD),
                     },
@@ -200,10 +201,13 @@ impl App {
                         break 'block;
                     }
                     self.game.input_state.cursor = (m.column - 1, m.row - 1);
+                    let cursor = self.game.input_state.cursor;
                     match button {
-                        MouseButton::Left => self.game.input_state.action = Some(OpenCell),
+                        MouseButton::Left => {
+                            self.game.input_state.action = Some(Command(OpenCell(cursor)))
+                        }
                         MouseButton::Right | MouseButton::Middle => {
-                            self.game.input_state.action = Some(FlagCell)
+                            self.game.input_state.action = Some(Command(FlagCell(cursor)))
                         }
                     };
                 }
@@ -217,52 +221,67 @@ impl App {
 
     /// Handles the key events and updates the state of [`App`].
     fn on_key_event(&mut self, key: KeyEvent) {
+        let cursor = self.game.input_state.cursor;
+
         match (key.modifiers, key.code) {
             (_, KeyCode::Esc | KeyCode::Char('q'))
             | (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
             // Add other key handlers here.
             (_, KeyCode::Char('k')) => {
-                self.game.input_state.action = Some(Surrender);
+                self.game.input_state.action = Some(Command(Surrender));
             }
             (_, KeyCode::Char('r')) => {
-                self.game.input_state.action = Some(Restart);
+                self.game.input_state.action = Some(Restart(None));
             }
             (_, KeyCode::Char('n')) => {
-                self.game.input_state.action = Some(IncrementMinesPercent(Positive));
+                self.game.input_state.action = Some(Restart(Some(IncrementMinesPercent(Positive))));
             }
             (_, KeyCode::Char('p')) => {
-                self.game.input_state.action = Some(IncrementMinesPercent(Negative));
+                self.game.input_state.action = Some(Restart(Some(IncrementMinesPercent(Negative))));
             }
             (_, KeyCode::Char('x' | ' ')) => {
-                self.game.input_state.action = Some(OpenCell);
+                self.game.input_state.action = Some(Command(OpenCell(cursor)));
             }
             (_, KeyCode::Char('z' | 'f')) => {
-                self.game.input_state.action = Some(FlagCell);
+                self.game.input_state.action = Some(Command(FlagCell(cursor)));
             }
             (_, KeyCode::Backspace) => {
-                self.game.input_state.action = Some(ClearFlag);
+                self.game.input_state.action = Some(Command(ClearFlag(cursor)));
             }
             (_, KeyCode::Char('+')) => {
-                self.game.input_state.action = Some(IncrementMines(Positive));
+                self.game.input_state.action = Some(Restart(Some(IncrementMines(Positive))));
             }
             (_, KeyCode::Char('-')) => {
-                self.game.input_state.action = Some(IncrementMines(Negative));
+                self.game.input_state.action = Some(Restart(Some(IncrementMines(Negative))));
             }
-            (modifiers, key @ (KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down)) => {
-                let (x, y) = match key {
-                    KeyCode::Left => (Negative, Zero),
-                    KeyCode::Right => (Positive, Zero),
-                    KeyCode::Up => (Zero, Negative),
-                    KeyCode::Down => (Zero, Positive),
-                    _ => unreachable!(),
-                };
+            (modifiers, KeyCode::Right) => {
                 if modifiers.contains(KeyModifiers::SHIFT) {
-                    self.game.input_state.action = Some(Resize(x, y));
+                    self.game.input_state.action = Some(Restart(Some(ResizeH(Positive))))
                 } else {
-                    self.game.move_cursor(x as i32, y as i32);
+                    self.game.move_cursor(1, 0)
                 }
             }
-
+            (modifiers, KeyCode::Down) => {
+                if modifiers.contains(KeyModifiers::SHIFT) {
+                    self.game.input_state.action = Some(Restart(Some(ResizeV(Positive))))
+                } else {
+                    self.game.move_cursor(0, 1)
+                }
+            }
+            (modifiers, KeyCode::Left) => {
+                if modifiers.contains(KeyModifiers::SHIFT) {
+                    self.game.input_state.action = Some(Restart(Some(ResizeH(Negative))))
+                } else {
+                    self.game.move_cursor(-1, 0)
+                }
+            }
+            (modifiers, KeyCode::Up) => {
+                if modifiers.contains(KeyModifiers::SHIFT) {
+                    self.game.input_state.action = Some(Restart(Some(ResizeV(Negative))))
+                } else {
+                    self.game.move_cursor(0, -1)
+                }
+            }
             _ => {}
         }
     }

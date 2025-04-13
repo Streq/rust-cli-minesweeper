@@ -1,6 +1,6 @@
 #[derive(Copy, Clone, Debug)]
 pub enum Flag {
-    None,
+    Clear,
     Flagged,
     FlaggedMaybe,
 }
@@ -12,11 +12,11 @@ impl Flag {
         // you'd also think "if enum to int is allowed, so is int to enum", well think again
         let next = (self as u32 + 1) % Self::SIZE;
         match next {
-            0 => Self::None,
+            0 => Self::Clear,
             1 => Self::Flagged,
             2 => Self::FlaggedMaybe,
             //purposely not _ so that it breaks if new flags are added
-            Self::SIZE.. => Self::None, // unreachable due to previous line
+            Self::SIZE.. => Self::Clear, // unreachable due to previous line
         }
     }
 }

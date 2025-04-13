@@ -1,13 +1,31 @@
-use crate::util::Unit;
+use crate::util::Sign;
 
+pub type Cursor = (u16, u16);
 #[derive(Copy, Clone, Debug)]
 pub enum Action {
-    OpenCell,
-    FlagCell,
-    ClearFlag,
+    Command(GameAction),
+    Restart(Option<RestartAction>),
+    Debug(DebugAction),
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum GameAction {
+    OpenCell(Cursor),
+    FlagCell(Cursor),
+    ClearFlag(Cursor),
     Surrender,
-    Restart,
-    IncrementMinesPercent(Unit),
-    Resize(Unit, Unit),
-    IncrementMines(Unit),
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum RestartAction {
+    ResizeH(Sign),
+    ResizeV(Sign),
+    IncrementMinesPercent(Sign),
+    IncrementMines(Sign),
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum DebugAction {
+    Undo,
+    Redo,
 }
