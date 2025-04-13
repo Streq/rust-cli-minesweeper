@@ -1,18 +1,18 @@
+use crate::cell_content::CellContent;
+use crate::cell_content::CellContent::*;
 use crate::flag::Flag::*;
-use crate::tile_content::TileContent;
-use crate::tile_content::TileContent::*;
 use crate::tile_visibility::TileVisibility;
 use crate::tile_visibility::TileVisibility::*;
 use std::fmt;
 use std::fmt::{Display, Formatter, Write};
 
 #[derive(Copy, Clone, Debug, Default)]
-pub struct Tile {
+pub struct Cell {
     pub visibility: TileVisibility,
-    pub content: TileContent,
+    pub content: CellContent,
 }
 
-impl Display for Tile {
+impl Display for Cell {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let c = match self.visibility {
             Hidden(flag) => match flag {

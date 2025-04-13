@@ -7,8 +7,8 @@ use crate::action::{DebugAction, RestartAction};
 use crate::args::MinesweeperArgs;
 use crate::flag::Flag::*;
 use crate::input_state::InputState;
-use crate::tile::Tile;
-use crate::tile_content::TileContent::*;
+use crate::cell::Cell;
+use crate::cell_content::CellContent::*;
 use crate::tile_visibility::TileVisibility;
 use crate::tile_visibility::TileVisibility::*;
 use crate::util::*;
@@ -24,7 +24,7 @@ use std::fmt::{Display, Formatter};
 pub struct Minesweeper {
     pub args: MinesweeperArgs,
     pub win_state: WinState,
-    pub cells: Vec<Tile>,
+    pub cells: Vec<Cell>,
     pub input_state: InputState,
     pub flagged_cells: u32,
     pub open_cells: u32,
@@ -76,7 +76,7 @@ impl Minesweeper {
 
         Self {
             args,
-            cells: vec![Tile::default(); size as usize],
+            cells: vec![Cell::default(); size as usize],
             title,
             text_top,
             text_bottom,
@@ -145,7 +145,7 @@ impl Minesweeper {
             },
         };
 
-        self.input_state.action = Option::None;
+        self.input_state.action = None;
     }
 
     fn set_mine(&mut self, x: u16, y: u16) {
@@ -153,7 +153,7 @@ impl Minesweeper {
         let h = self.args.height;
 
         // match empty tile
-        let Some(Tile {
+        let Some(Cell {
             content: mine @ Empty(_),
             ..
         }) = &mut Self::_get_tile_mut(&mut self.cells, w, h, x, y)
@@ -167,7 +167,7 @@ impl Minesweeper {
                 x.overflowing_add_signed(dx as i16).0,
                 y.overflowing_add_signed(dy as i16).0,
             );
-            let Some(Tile {
+            let Some(Cell {
                 content: Empty(count),
                 ..
             }) = &mut Self::_get_tile_mut(&mut self.cells, w, h, i, j)
@@ -317,7 +317,7 @@ impl Minesweeper {
         }
     }
 
-    pub fn get_tile(&self, x: u16, y: u16) -> Option<&Tile> {
+    pub fn get_tile(&self, x: u16, y: u16) -> Option<&Cell> {
         Self::_get_tile(&self.cells, self.args.width, self.args.height, x, y)
     }
     pub fn move_cursor(&mut self, dx: i32, dy: i32) {
@@ -350,7 +350,7 @@ impl Minesweeper {
         }
         *visibility = Show
     }
-    fn _get_tile_mut(vec: &mut [Tile], w: u16, h: u16, x: u16, y: u16) -> Option<&mut Tile> {
+    fn _get_tile_mut(vec: &mut [Cell], w: u16, h: u16, x: u16, y: u16) -> Option<&mut Cell> {
         if w <= x || h <= y {
             None
         } else {
@@ -358,7 +358,7 @@ impl Minesweeper {
         }
     }
 
-    fn _get_tile(vec: &[Tile], w: u16, h: u16, x: u16, y: u16) -> Option<&Tile> {
+    fn _get_tile(vec: &[Cell], w: u16, h: u16, x: u16, y: u16) -> Option<&Cell> {
         if w <= x || h <= y {
             None
         } else {

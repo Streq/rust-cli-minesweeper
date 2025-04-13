@@ -1,11 +1,12 @@
 use crate::action::Action::*;
-use crate::action::GameAction::{ClearFlag, FlagCell, OpenCell, Surrender};
-use crate::action::RestartAction::{IncrementMines, IncrementMinesPercent, ResizeH, ResizeV};
+use crate::action::DebugAction::*;
+use crate::action::GameAction::*;
+use crate::action::RestartAction::*;
 use crate::args::MinesweeperArgs;
 use crate::flag::Flag::*;
 use crate::input_state::InputState;
 use crate::minesweeper::Minesweeper;
-use crate::tile_content::TileContent;
+use crate::cell_content::CellContent;
 use crate::tile_visibility::TileVisibility::*;
 use crate::util::Sign::*;
 use crate::win_state::WinState;
@@ -160,7 +161,7 @@ impl App {
                         FlaggedMaybe => ('?', Black, Yellow, Modifier::BOLD),
                     },
                     Show => match tile.content {
-                        TileContent::Empty(n) => match n {
+                        CellContent::Empty(n) => match n {
                             0 => (' ', Reset, CLEAR_COLOR, Modifier::empty()),
                             1 => ('1', LightBlue, CLEAR_COLOR, Modifier::empty()),
                             2 => ('2', LightGreen, CLEAR_COLOR, Modifier::empty()),
@@ -171,7 +172,7 @@ impl App {
                             7 => ('7', Gray, CLEAR_COLOR, Modifier::empty()),
                             8.. => ('8', White, CLEAR_COLOR, Modifier::empty()),
                         },
-                        TileContent::Mine => ('*', LightRed, Black, Modifier::BOLD),
+                        CellContent::Mine => ('*', LightRed, Black, Modifier::BOLD),
                     },
                 };
 
@@ -255,7 +256,9 @@ impl App {
                 self.game.input_state.action = Some(Restart(Some(IncrementMines(Negative))));
             }
             (modifiers, KeyCode::Right) => {
-                if modifiers.contains(KeyModifiers::SHIFT) {
+                if modifiers.contains(KeyModifiers::CONTROL) {
+                    self.game.input_state.action = Some(Debug(Redo))
+                } else if modifiers.contains(KeyModifiers::SHIFT) {
                     self.game.input_state.action = Some(Restart(Some(ResizeH(Positive))))
                 } else {
                     self.game.move_cursor(1, 0)
@@ -269,7 +272,9 @@ impl App {
                 }
             }
             (modifiers, KeyCode::Left) => {
-                if modifiers.contains(KeyModifiers::SHIFT) {
+                if modifiers.contains(KeyModifiers::CONTROL) {
+                    self.game.input_state.action = Some(Debug(Undo))
+                } else if modifiers.contains(KeyModifiers::SHIFT) {
                     self.game.input_state.action = Some(Restart(Some(ResizeH(Negative))))
                 } else {
                     self.game.move_cursor(-1, 0)
