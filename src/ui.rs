@@ -1,6 +1,6 @@
 use crate::action::Action::*;
 use crate::action::DebugAction::*;
-use crate::action::GameAction::*;
+use crate::action::GameCommand::*;
 use crate::action::RestartAction::*;
 use crate::args::MinesweeperArgs;
 use crate::cell_content::CellContent;

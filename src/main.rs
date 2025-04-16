@@ -4,6 +4,7 @@ mod action;
 mod args;
 mod cell;
 mod cell_content;
+mod diff;
 mod flag;
 mod input_state;
 mod minesweeper;

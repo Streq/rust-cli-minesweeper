@@ -1,10 +1,11 @@
 use crate::action::Action::*;
 use crate::action::DebugAction::*;
-use crate::action::GameAction::*;
+use crate::action::GameCommand::*;
 use crate::action::RestartAction::*;
 use crate::args::MinesweeperArgs;
 use crate::cell::Cell;
 use crate::cell_content::CellContent::*;
+use crate::diff::Diff;
 use crate::flag::Flag::*;
 use crate::input_state::InputState;
 use crate::tile_visibility::TileVisibility;
@@ -26,6 +27,8 @@ pub struct Minesweeper {
     pub input_state: InputState,
     pub flagged_cells: u32,
     pub open_cells: u32,
+
+    pub history: Vec<Diff>,
 
     // display fields, maybe should be moved somewhere else
     pub text_top: &'static str,
@@ -105,9 +108,9 @@ impl Minesweeper {
                     self.win_state = Lost
                 }
             },
-            Restart(o) => {
-                if let Some(a) = o {
-                    match a {
+            Restart(option) => {
+                if let Some(action) = option {
+                    match action {
                         IncrementMinesPercent(unit) => {
                             let size: u32 = w as u32 * h as u32;
                             let hundredth = max(1, size / 100);
