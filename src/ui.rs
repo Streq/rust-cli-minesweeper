@@ -6,7 +6,7 @@ use crate::args::MinesweeperArgs;
 use crate::cell_content::CellContent;
 use crate::flag::Flag::*;
 use crate::input_state::InputState;
-use crate::minesweeper::Minesweeper;
+use crate::minesweeper::{DisplayText, GameState, Minesweeper};
 use crate::tile_visibility::TileVisibility::*;
 use crate::util::Sign::*;
 use crate::win_state::WinState;
@@ -91,42 +91,50 @@ impl App {
                     mines,
                     ..
                 },
-            win_state,
-            text_top,
-            text_bottom,
-            title,
+            display:
+                DisplayText {
+                    text_top,
+                    title,
+                    text_bottom,
+                    width_digits,
+                    height_digits,
+                    mines_digits,
+                },
+            game_state:
+                GameState {
+                    win_state,
+                    cells,
+                    flagged_cells,
+                    open_cells,
+                },
             input_state: InputState { cursor: (x, y), .. },
-            flagged_cells: flagged_tiles,
-            width_digits,
-            height_digits,
-            mines_digits,
             ..
-        } = self.game;
+        } = &self.game;
 
         let (title, bottom) = match win_state {
             WinState::Untouched => (
-                Line::from(title).bold().light_blue().centered(),
+                Line::from(*title).bold().light_blue().centered(),
                 Line::from(format!("{}x{},{}", width, height, mines)).centered(),
             ),
             WinState::Won => (
-                Line::from(text_top).bold().light_green().centered(),
-                Line::from(text_bottom).bold().light_green().centered(),
+                Line::from(*text_top).bold().light_green().centered(),
+                Line::from(*text_bottom).bold().light_green().centered(),
             ),
             WinState::Lost => (
-                Line::from(text_top).bold().light_red().centered(),
-                Line::from(text_bottom).bold().light_red().centered(),
+                Line::from(*text_top).bold().light_red().centered(),
+                Line::from(*text_bottom).bold().light_red().centered(),
             ),
             _ => {
                 let mut stats = format!(
                     "{:mines_digits$}/{} ({:width_digits$},{:height_digits$}) {}x{}",
-                    flagged_tiles, mines, x, y, width, height
+                    flagged_cells, mines, x, y, width, height
                 );
-                if stats.len() as u16 > width {
-                    stats = format!("{} {},{}", mines - flagged_tiles, x, y);
+                if stats.len() as u16 > *width {
+                    stats = format!("{} {},{}", mines - flagged_cells, x, y);
                 }
 
                 (
-                    Line::from(title).bold().light_blue().centered(),
+                    Line::from(*title).bold().light_blue().centered(),
                     Line::from(stats).centered(),
                 )
             }

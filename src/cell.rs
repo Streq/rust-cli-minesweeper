@@ -6,7 +6,7 @@ use crate::tile_visibility::TileVisibility::*;
 use std::fmt;
 use std::fmt::{Display, Formatter, Write};
 
-#[derive(Copy, Clone, Debug, Default)]
+#[derive(Copy, Clone, Debug, Default, PartialEq)]
 pub struct Cell {
     pub visibility: TileVisibility,
     pub content: CellContent,

@@ -1,14 +1,15 @@
 use self::GameCommand::*;
+use crate::args::MinesweeperArgs;
 use crate::cell::Cell;
 use crate::cell_content::CellContent;
 use crate::cell_content::CellContent::Empty;
 use crate::diff::Diff::{MultiCell, SingleCell};
 use crate::diff::*;
 use crate::flag::Flag::*;
-use crate::minesweeper::Minesweeper;
+use crate::minesweeper::{GameState, Minesweeper};
 use crate::tile_visibility::TileVisibility;
 use crate::tile_visibility::TileVisibility::{Hidden, Show};
-use crate::util::{DIRS_8, Sign};
+use crate::util::{DIRS_8, Sign, i_xy, xy_i};
 use crate::win_state::WinState::*;
 use CellContent::Mine;
 use std::collections::VecDeque;
@@ -30,19 +31,14 @@ pub enum GameCommand {
 }
 
 impl GameCommand {
-    fn apply(&self, game: &Minesweeper) -> Option<Diff> {
+    pub fn apply(&self, game: &GameState, args: &MinesweeperArgs) -> Option<Diff> {
         let branch = (*self, game.win_state);
-        let w = game.args.width;
-        let h = game.args.height;
+        let w = args.width;
+        let h = args.height;
 
         match branch {
-            (OpenCell((x, y)), Untouched) => {
-                todo!()
-            }
-            (OpenCell(xy), Ongoing) => {
-                let Some(i) = xy_i(xy, w, h) else {
-                    return None;
-                };
+            (OpenCell(xy), Untouched) => init_random_game(xy, args),
+            (OpenCell(xy), Ongoing) => xy_i(xy, w, h).and_then(|i| {
                 let cells = &game.cells;
 
                 let cell = cells[i];
@@ -55,7 +51,8 @@ impl GameCommand {
                     Empty(0) => expand_cell_diff_result(cells, w, h, i),
                     Empty(_) | Mine => cell.diff_result(i, Show),
                 }
-            }
+            }),
+
             (FlagCell(xy), Ongoing | Untouched) => xy_i(xy, w, h).and_then(|i| {
                 let cell = game.cells[i];
                 if let Hidden(flag) = cell.visibility {
@@ -64,7 +61,7 @@ impl GameCommand {
                     None
                 }
             }),
-            (ClearFlag(cursor), Ongoing | Untouched) => xy_i(cursor, w, h).and_then(|i| {
+            (ClearFlag(xy), Ongoing | Untouched) => xy_i(xy, w, h).and_then(|i| {
                 let cell = game.cells[i];
                 if let Show | Hidden(Clear) = cell.visibility {
                     None
@@ -86,6 +83,21 @@ impl GameCommand {
             (_, Untouched | Won | Lost) => None,
         }
     }
+}
+
+fn init_random_game(cursor: Cursor, args: &MinesweeperArgs) -> Option<Diff> {
+    let w = args.width;
+    let h = args.height;
+    let m = args.mines;
+    if m == 0 {
+        return None;
+    };
+    let Some(i) = xy_i(cursor, w, h) else {
+        return None;
+    };
+    let ret = vec![Default::default(); m as usize];
+
+    Some(MultiCell(ret))
 }
 
 fn expand_cell_diff_result(cells: &[Cell], w: u16, h: u16, idx: usize) -> Option<Diff> {
@@ -114,24 +126,6 @@ fn expand_cell_diff_result(cells: &[Cell], w: u16, h: u16, idx: usize) -> Option
     }
 
     Some(MultiCell(ret))
-}
-
-fn xy_i((x, y): Cursor, w: u16, h: u16) -> Option<usize> {
-    if w <= x || h <= y {
-        None
-    } else {
-        Some(y as usize * w as usize + x as usize)
-    }
-}
-
-fn i_xy(index: usize, w: u16, h: u16) -> Option<Cursor> {
-    let ws = w as usize;
-    let hs = h as usize;
-    if index >= (ws * hs) {
-        None
-    } else {
-        Some(((index % ws) as u16, (index / ws) as u16))
-    }
 }
 
 fn neighbors((x, y): Cursor, w: u16, h: u16) -> [Option<Cursor>; 8] {

@@ -1,6 +1,4 @@
 use crate::cell::Cell;
-use crate::win_state::WinState;
-
 #[derive(Debug, Clone)]
 pub enum Diff {
     SingleCell(SingleCellDiff),

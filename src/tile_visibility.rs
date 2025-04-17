@@ -1,6 +1,6 @@
 use crate::flag::Flag;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum TileVisibility {
     Hidden(Flag),
     Show,
