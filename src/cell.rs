@@ -12,13 +12,6 @@ pub struct Cell {
     pub content: CellContent,
 }
 
-impl Cell {
-    pub fn with_visibility(mut self, visibility: TileVisibility) -> Self {
-        self.visibility = visibility;
-        self
-    }
-}
-
 impl Display for Cell {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let c = match self.visibility {

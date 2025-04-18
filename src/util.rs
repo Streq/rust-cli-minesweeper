@@ -48,20 +48,19 @@ pub fn i_xy(index: usize, w: u16, h: u16) -> Option<Cursor> {
     }
 }
 
-fn valid_neighbors(
+pub fn valid_neighbors(
     dirs: &[(i8, i8)],
-    x: u16,
-    y: u16,
+    (x, y): Cursor,
     w: u16,
     h: u16,
-) -> impl Iterator<Item = (u16, u16)> {
+) -> impl Iterator<Item = Cursor> {
     dirs.iter()
         .map(|(dx, dy)| (*dx as i16, *dy as i16))
         .map(move |(dx, dy)| (x.saturating_add_signed(dx), y.saturating_add_signed(dy)))
-        .filter(move |(i, j)| (0..w).contains(i) && (0..h).contains(j))
+        .filter(move |(i, j)| w > *i && h > *j)
 }
 
-fn fill_random<T: PartialEq + Copy>(
+pub fn fill_random<T: PartialEq + Copy>(
     whitelisted: impl Iterator<Item = usize>,
     size: usize,
     fills: usize,
@@ -94,4 +93,19 @@ fn fill_random<T: PartialEq + Copy>(
     }
 
     ret
+}
+
+pub fn neighbors((x, y): Cursor, w: u16, h: u16) -> [Option<Cursor>; 8] {
+    DIRS_8
+        .map(|(dx, dy)| {
+            (
+                x.overflowing_add_signed(dx as i16),
+                y.overflowing_add_signed(dy as i16),
+            )
+        })
+        .map(
+            |((x, ox), (y, oy))| {
+                if oy || ox { None } else { Some((x, y)) }
+            },
+        )
 }

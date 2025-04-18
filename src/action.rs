@@ -3,16 +3,19 @@ use crate::args::MinesweeperArgs;
 use crate::cell::Cell;
 use crate::cell_content::CellContent;
 use crate::cell_content::CellContent::Empty;
-use crate::diff::Diff::{MultiCell, SingleCell};
+use crate::diff::CellDiff::{MultiCell, SingleCell};
+use crate::diff::Diff;
 use crate::diff::*;
 use crate::flag::Flag::*;
-use crate::minesweeper::{GameState, Minesweeper};
+use crate::minesweeper::GameState;
 use crate::tile_visibility::TileVisibility;
 use crate::tile_visibility::TileVisibility::{Hidden, Show};
-use crate::util::{DIRS_8, Sign, i_xy, xy_i};
+use crate::util::{DIRS_8, Sign, i_xy, valid_neighbors, xy_i};
+use crate::win_state::WinState;
 use crate::win_state::WinState::*;
 use CellContent::Mine;
 use std::collections::VecDeque;
+use std::hint::unreachable_unchecked;
 
 pub type Cursor = (u16, u16);
 #[derive(Copy, Clone, Debug)]
@@ -31,89 +34,119 @@ pub enum GameCommand {
 }
 
 impl GameCommand {
-    pub fn apply(&self, game: &GameState, args: &MinesweeperArgs) -> Option<Diff> {
-        let branch = (*self, game.win_state);
+    pub fn apply(&self, game: &mut GameState, args: &MinesweeperArgs) -> Option<Diff> {
+        let branch = *self;
         let w = args.width;
         let h = args.height;
 
-        match branch {
-            (OpenCell(xy), Untouched) => init_random_game(xy, args),
-            (OpenCell(xy), Ongoing) => xy_i(xy, w, h).and_then(|i| {
-                let cells = &game.cells;
+        let Ongoing = game.win_state else { return None };
 
-                let cell = cells[i];
+        match branch {
+            OpenCell(xy) => xy_i(xy, w, h).and_then(|i| {
+                let cells = &mut game.cells;
+
+                let cell = &mut cells[i];
 
                 let Hidden(Clear | FlaggedMaybe) = cell.visibility else {
                     return None;
                 };
-
+                let size = w as u32 * h as u32;
+                let mines = args.mines;
                 match cell.content {
-                    Empty(0) => expand_cell_diff_result(cells, w, h, i),
-                    Empty(_) | Mine => cell.diff_result(i, Show),
+                    Empty(0) => {
+                        let v = expand_cell_diff_result(cells, w, h, i);
+                        game.open_cells += v.len() as u32;
+                        let win = if game.open_cells == size - mines {
+                            Won
+                        } else {
+                            Ongoing
+                        };
+                        Some(Diff {
+                            win_state: win,
+                            diff: MultiCell(v),
+                        })
+                    }
+                    Empty(_) => {
+                        let diff = cell.diff_result(i, Show);
+                        game.open_cells += 1;
+                        let win_state = if game.open_cells == size - mines {
+                            Won
+                        } else {
+                            Ongoing
+                        };
+
+                        Some(Diff { diff, win_state })
+                    }
+                    Mine => Some(Diff {
+                        diff: cell.diff_result(i, Show),
+                        win_state: Lost,
+                    }),
                 }
             }),
-
-            (FlagCell(xy), Ongoing | Untouched) => xy_i(xy, w, h).and_then(|i| {
-                let cell = game.cells[i];
+            FlagCell(xy) => xy_i(xy, w, h).and_then(|i| {
+                let cell = &mut game.cells[i];
                 if let Hidden(flag) = cell.visibility {
-                    cell.diff_result(i, Hidden(flag.next()))
+                    if let Hidden(Flagged) = cell.visibility {
+                        game.flagged_cells -= 1;
+                    }
+                    if let Hidden(Clear) = cell.visibility {
+                        game.flagged_cells += 1;
+                    }
+                    Some(Diff {
+                        diff: cell.diff_result(i, Hidden(flag.next())),
+                        win_state: Ongoing,
+                    })
                 } else {
                     None
                 }
             }),
-            (ClearFlag(xy), Ongoing | Untouched) => xy_i(xy, w, h).and_then(|i| {
-                let cell = game.cells[i];
+            ClearFlag(xy) => xy_i(xy, w, h).and_then(|i| {
+                let cell = &mut game.cells[i];
                 if let Show | Hidden(Clear) = cell.visibility {
                     None
                 } else {
-                    cell.diff_result(i, Hidden(Clear))
+                    if let Hidden(Flagged) = cell.visibility {
+                        game.flagged_cells -= 1;
+                    }
+                    Some(Diff {
+                        diff: cell.diff_result(i, Hidden(Clear)),
+                        win_state: Ongoing,
+                    })
                 }
             }),
-            (Surrender, Ongoing) => {
+            Surrender => {
                 let mut ret = vec![];
                 ret.reserve_exact(game.cells.len() - game.open_cells as usize);
-                for (i, cell) in game.cells.iter().enumerate() {
+                for (i, cell) in game.cells.iter_mut().enumerate() {
                     if let Show = cell.visibility {
                         continue;
                     }
                     ret.push(cell.diff(i, Show))
                 }
-                Some(MultiCell(ret))
+
+                Some(Diff {
+                    diff: MultiCell(ret),
+                    win_state: Lost,
+                })
             }
-            (_, Untouched | Won | Lost) => None,
         }
     }
 }
-
-fn init_random_game(cursor: Cursor, args: &MinesweeperArgs) -> Option<Diff> {
-    let w = args.width;
-    let h = args.height;
-    let m = args.mines;
-    if m == 0 {
-        return None;
-    };
-    let Some(i) = xy_i(cursor, w, h) else {
-        return None;
-    };
-    let ret = vec![Default::default(); m as usize];
-
-    Some(MultiCell(ret))
-}
-
-fn expand_cell_diff_result(cells: &[Cell], w: u16, h: u16, idx: usize) -> Option<Diff> {
-    let mut stack = VecDeque::<Cursor>::new();
+fn expand_cell_diff_result(cells: &mut [Cell], w: u16, h: u16, idx: usize) -> Vec<SingleCellDiff> {
     let mut ret = vec![];
+
+    let mut stack = VecDeque::<Cursor>::new();
     ret.push(cells[idx].diff(idx, Show));
 
     stack.push_back(i_xy(idx, w, h).unwrap());
 
-    while let Some(cursor) = stack.pop_back() {
-        for neighbor in neighbors(cursor, w, h) {
-            let Some(xy) = neighbor else { continue };
-            let Some(i) = xy_i(xy, w, h) else { continue };
-
-            let cell = &cells[i];
-
+    while let Some(c) = stack.pop_back() {
+        for xy in valid_neighbors(&DIRS_8, c, w, h) {
+            let Some(i) = xy_i(xy, w, h) else {
+                unreachable!()
+            };
+            let cell = &mut cells[i];
+            let Hidden(_) = cell.visibility else { continue };
             let Empty(n) = cell.content else {
                 unreachable!()
             };
@@ -124,36 +157,22 @@ fn expand_cell_diff_result(cells: &[Cell], w: u16, h: u16, idx: usize) -> Option
             }
         }
     }
-
-    Some(MultiCell(ret))
-}
-
-fn neighbors((x, y): Cursor, w: u16, h: u16) -> [Option<Cursor>; 8] {
-    DIRS_8
-        .map(|(dx, dy)| {
-            (
-                x.overflowing_add_signed(dx as i16),
-                y.overflowing_add_signed(dy as i16),
-            )
-        })
-        .map(
-            |((x, ox), (y, oy))| {
-                if oy || ox { None } else { Some((x, y)) }
-            },
-        )
+    ret
 }
 
 impl Cell {
-    pub fn diff(&self, i: usize, visibility: TileVisibility) -> SingleCellDiff {
+    pub fn diff(&mut self, i: usize, visibility: TileVisibility) -> SingleCellDiff {
+        let before = *self;
+        self.visibility = visibility;
         SingleCellDiff {
             index: i,
-            before: *self,
-            after: self.with_visibility(visibility),
+            before,
+            after: *self,
         }
     }
 
-    pub fn diff_result(&self, i: usize, visibility: TileVisibility) -> Option<Diff> {
-        Some(SingleCell(self.diff(i, visibility)))
+    pub fn diff_result(&mut self, i: usize, visibility: TileVisibility) -> CellDiff {
+        SingleCell(self.diff(i, visibility))
     }
 }
 

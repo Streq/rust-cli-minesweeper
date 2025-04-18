@@ -1,15 +1,19 @@
 use crate::action::Action::*;
+use crate::action::Cursor;
 use crate::action::DebugAction::*;
 use crate::action::GameCommand::*;
 use crate::action::RestartAction::*;
 use crate::args::MinesweeperArgs;
 use crate::cell::Cell;
 use crate::cell_content::CellContent::*;
+use crate::diff::CellDiff::{MultiCell, SingleCell};
 use crate::diff::{Diff, SingleCellDiff};
 use crate::flag::Flag::*;
 use crate::input_state::InputState;
-use crate::util::xy_i;
+use crate::util::{DIRS_8, DIRS_9, fill_random, i_xy, valid_neighbors, xy_i};
 use crate::win_state::WinState;
+use crate::win_state::WinState::Ongoing;
+use WinState::Untouched;
 use rand::RngCore;
 use std::cmp::{PartialEq, max, min};
 use std::collections::{BTreeSet, VecDeque};
@@ -148,17 +152,25 @@ impl Minesweeper {
         let Some(n) = self.input_state.action else {
             return;
         };
-        let MinesweeperArgs {
+        let args @ MinesweeperArgs {
             mines,
             width: w,
             height: h,
         } = self.args;
         match n {
             Command(a) => 'b: {
-                let Some(diff) = a.apply(&self.game_state, &self.args) else {
+                if let (OpenCell(cursor), Untouched) = (a, self.game_state.win_state) {
+                    // initialization
+                    if let None = xy_i(cursor, w, h) {
+                        break 'b;
+                    }
+                    initialize(&mut self.game_state.cells, cursor, args);
+                    self.game_state.win_state = Ongoing;
+                }
+
+                let Some(diff) = a.apply(&mut self.game_state, &self.args) else {
                     break 'b;
                 };
-                self.game_state.apply(&diff);
                 self.history.push(diff);
             }
             Restart(option) => {
@@ -218,6 +230,41 @@ impl Minesweeper {
     }
 }
 
+fn initialize(
+    cells: &mut Vec<Cell>,
+    cursor: Cursor,
+    MinesweeperArgs {
+        width: w,
+        height: h,
+        mines: m,
+    }: MinesweeperArgs,
+) {
+    let neighbors = valid_neighbors(&DIRS_9, cursor, w, h);
+
+    let mines = fill_random(
+        neighbors.map(|cursor| xy_i(cursor, w, h).unwrap()),
+        w as usize * h as usize,
+        m as usize,
+        false,
+        true,
+    );
+
+    for (i, &has_mine) in mines.iter().enumerate() {
+        if !has_mine {
+            continue;
+        }
+        cells[i].content = Mine;
+        let mine_cursor = i_xy(i, w, h).unwrap();
+        for neigh_cursor in valid_neighbors(&DIRS_8, mine_cursor, w, h) {
+            let neigh_idx = xy_i(neigh_cursor, w, h).unwrap();
+            let neigh_cell = &mut cells[neigh_idx];
+            if let Empty(ref mut n) = neigh_cell.content {
+                *n += 1;
+            };
+        }
+    }
+}
+
 impl GameState {
     fn apply_single_diff(
         &mut self,
@@ -244,11 +291,11 @@ impl GameState {
         *cell = *before;
     }
     fn apply(&mut self, diff: &Diff) {
-        match diff {
-            Diff::SingleCell(diff) => {
+        match &diff.diff {
+            SingleCell(diff) => {
                 self.apply_single_diff(diff);
             }
-            Diff::MultiCell(diffs) => {
+            MultiCell(diffs) => {
                 for diff in diffs {
                     self.apply_single_diff(diff);
                 }
@@ -257,11 +304,11 @@ impl GameState {
     }
 
     fn undo(&mut self, diff: &Diff) {
-        match diff {
-            Diff::SingleCell(diff) => {
+        match &diff.diff {
+            SingleCell(diff) => {
                 self.undo_single_diff(diff);
             }
-            Diff::MultiCell(diffs) => {
+            MultiCell(diffs) => {
                 for diff in diffs {
                     self.undo_single_diff(diff);
                 }
