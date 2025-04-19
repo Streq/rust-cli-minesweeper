@@ -194,10 +194,9 @@ impl App {
             }
         }
 
-        frame.set_cursor_position(Position {
-            x: self.game.input_state.cursor.0 + 1,
-            y: self.game.input_state.cursor.1 + 1,
-        });
+        let x = self.game.input_state.cursor.0 + 1;
+        let y = self.game.input_state.cursor.1 + 1;
+        frame.set_cursor_position(Position { x, y });
     }
 
     fn handle_crossterm_events(&mut self) -> Result<()> {

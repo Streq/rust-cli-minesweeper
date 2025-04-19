@@ -204,7 +204,6 @@ impl Minesweeper {
                     cursor.0.clamp(0, self.args.width - 1),
                     cursor.1.clamp(0, self.args.height - 1),
                 );
-                self.input_state.cursor = cursor
             }
             Debug(a) => match a {
                 Undo => self.history.step_back(&mut self.game_state),
