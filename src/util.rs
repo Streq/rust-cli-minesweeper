@@ -56,8 +56,14 @@ pub fn valid_neighbors(
 ) -> impl Iterator<Item = Cursor> {
     dirs.iter()
         .map(|(dx, dy)| (*dx as i16, *dy as i16))
-        .map(move |(dx, dy)| (x.saturating_add_signed(dx), y.saturating_add_signed(dy)))
-        .filter(move |(i, j)| w > *i && h > *j)
+        .map(move |(dx, dy)| (x.overflowing_add_signed(dx), y.overflowing_add_signed(dy)))
+        .filter_map(move |((i, io), (j, jo))| {
+            if !io && i < w && !jo && j < h {
+                Some((i, j))
+            } else {
+                None
+            }
+        })
 }
 
 pub fn fill_random<T: PartialEq + Copy>(
