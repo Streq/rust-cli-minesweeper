@@ -233,15 +233,10 @@ impl Minesweeper {
     }
 }
 
-fn initialize(
-    cells: &mut Vec<Cell>,
-    cursor: Cursor,
-    MinesweeperArgs {
-        width: w,
-        height: h,
-        mines: m,
-    }: MinesweeperArgs,
-) {
+fn initialize(cells: &mut Vec<Cell>, cursor: Cursor, args: MinesweeperArgs) {
+    let m = args.mines;
+    let w = args.width;
+    let h = args.height;
     let neighbors = valid_neighbors(&DIRS_9, cursor, w, h);
 
     let mines = fill_random(

@@ -1,6 +1,5 @@
 use crate::cell_content::CellContent;
 use crate::cell_content::CellContent::*;
-use crate::diff::SingleCellDiff;
 use crate::flag::Flag::*;
 use crate::tile_visibility::TileVisibility;
 use crate::tile_visibility::TileVisibility::*;

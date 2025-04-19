@@ -103,10 +103,10 @@ impl App {
             game_state:
                 GameState {
                     win_state,
-                    cells,
+                    cells: _,
                     flagged_cells,
-                    closed_empty_cells,
-                    open_mine_cells,
+                    closed_empty_cells: _,
+                    open_mine_cells: _,
                 },
             input_state: InputState { cursor: (x, y), .. },
             ..
