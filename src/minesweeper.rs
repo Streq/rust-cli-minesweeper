@@ -18,7 +18,6 @@ use crate::win_state::WinState::{Lost, Ongoing, Won};
 use TileVisibility::Show;
 use WinState::Untouched;
 use std::cmp::{max, min};
-use std::collections::VecDeque;
 use std::default::Default;
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -30,7 +29,6 @@ pub struct Minesweeper {
     pub game_state: GameState,
     pub input_state: InputState,
     pub display: DisplayText,
-    pub point_stack: VecDeque<Cursor>,
 }
 
 #[derive(Debug, Default)]

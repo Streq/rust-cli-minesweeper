@@ -94,18 +94,3 @@ pub fn fill_random<T: PartialEq + Copy>(
 
     ret
 }
-
-pub fn neighbors((x, y): Cursor, w: u16, h: u16) -> [Option<Cursor>; 8] {
-    DIRS_8
-        .map(|(dx, dy)| {
-            (
-                x.overflowing_add_signed(dx as i16),
-                y.overflowing_add_signed(dy as i16),
-            )
-        })
-        .map(
-            |((x, ox), (y, oy))| {
-                if oy || ox { None } else { Some((x, y)) }
-            },
-        )
-}

@@ -182,7 +182,7 @@ impl App {
                             8 => ('8', White, CLEAR_COLOR, Modifier::empty()),
                             _ => unreachable!(),
                         },
-                        CellContent::Mine => ('*', LightRed, Black, Modifier::BOLD),
+                        CellContent::Mine => ('*', Black, LightRed, Modifier::BOLD),
                     },
                 };
 
