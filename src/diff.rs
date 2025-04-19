@@ -1,13 +1,6 @@
 use crate::cell::Cell;
-use crate::win_state::WinState;
-
 #[derive(Debug)]
-pub struct Diff {
-    pub win_state: WinState,
-    pub diff: CellDiff,
-}
-#[derive(Debug)]
-pub enum CellDiff {
+pub enum Diff {
     SingleCell(SingleCellDiff),
     MultiCell(Vec<SingleCellDiff>),
 }

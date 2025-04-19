@@ -3,19 +3,17 @@ use crate::args::MinesweeperArgs;
 use crate::cell::Cell;
 use crate::cell_content::CellContent;
 use crate::cell_content::CellContent::Empty;
-use crate::diff::CellDiff::{MultiCell, SingleCell};
 use crate::diff::Diff;
+use crate::diff::Diff::{MultiCell, SingleCell};
 use crate::diff::*;
 use crate::flag::Flag::*;
 use crate::minesweeper::GameState;
 use crate::tile_visibility::TileVisibility;
 use crate::tile_visibility::TileVisibility::{Hidden, Show};
 use crate::util::{DIRS_8, Sign, i_xy, valid_neighbors, xy_i};
-use crate::win_state::WinState;
 use crate::win_state::WinState::*;
 use CellContent::Mine;
 use std::collections::VecDeque;
-use std::hint::unreachable_unchecked;
 
 pub type Cursor = (u16, u16);
 #[derive(Copy, Clone, Debug)]
@@ -40,94 +38,47 @@ impl GameCommand {
         let h = args.height;
 
         let Ongoing = game.win_state else { return None };
+        let cells = &mut game.cells;
 
         match branch {
             OpenCell(xy) => xy_i(xy, w, h).and_then(|i| {
-                let cells = &mut game.cells;
-
                 let cell = &mut cells[i];
 
                 let Hidden(Clear | FlaggedMaybe) = cell.visibility else {
                     return None;
                 };
-                let size = w as u32 * h as u32;
-                let mines = args.mines;
                 match cell.content {
-                    Empty(0) => {
-                        let v = expand_cell_diff_result(cells, w, h, i);
-                        game.open_cells += v.len() as u32;
-                        let win = if game.open_cells == size - mines {
-                            Won
-                        } else {
-                            Ongoing
-                        };
-                        Some(Diff {
-                            win_state: win,
-                            diff: MultiCell(v),
-                        })
-                    }
-                    Empty(_) => {
-                        let diff = cell.diff_result(i, Show);
-                        game.open_cells += 1;
-                        let win_state = if game.open_cells == size - mines {
-                            Won
-                        } else {
-                            Ongoing
-                        };
-
-                        Some(Diff { diff, win_state })
-                    }
-                    Mine => Some(Diff {
-                        diff: cell.diff_result(i, Show),
-                        win_state: Lost,
-                    }),
+                    Empty(0) => Some(MultiCell(expand_cell_diff_result(cells, w, h, i))),
+                    Empty(_) => Some(cell.diff_result(i, Show)),
+                    Mine => Some(cell.diff_result(i, Show)),
                 }
             }),
             FlagCell(xy) => xy_i(xy, w, h).and_then(|i| {
-                let cell = &mut game.cells[i];
+                let cell = &mut cells[i];
                 if let Hidden(flag) = cell.visibility {
-                    if let Hidden(Flagged) = cell.visibility {
-                        game.flagged_cells -= 1;
-                    }
-                    if let Hidden(Clear) = cell.visibility {
-                        game.flagged_cells += 1;
-                    }
-                    Some(Diff {
-                        diff: cell.diff_result(i, Hidden(flag.next())),
-                        win_state: Ongoing,
-                    })
+                    Some(cell.diff_result(i, Hidden(flag.next())))
                 } else {
                     None
                 }
             }),
             ClearFlag(xy) => xy_i(xy, w, h).and_then(|i| {
-                let cell = &mut game.cells[i];
+                let cell = &mut cells[i];
                 if let Show | Hidden(Clear) = cell.visibility {
                     None
                 } else {
-                    if let Hidden(Flagged) = cell.visibility {
-                        game.flagged_cells -= 1;
-                    }
-                    Some(Diff {
-                        diff: cell.diff_result(i, Hidden(Clear)),
-                        win_state: Ongoing,
-                    })
+                    Some(cell.diff_result(i, Hidden(Clear)))
                 }
             }),
             Surrender => {
                 let mut ret = vec![];
-                ret.reserve_exact(game.cells.len() - game.open_cells as usize);
+                ret.reserve_exact(cells.len());
                 for (i, cell) in game.cells.iter_mut().enumerate() {
                     if let Show = cell.visibility {
                         continue;
                     }
                     ret.push(cell.diff(i, Show))
                 }
-
-                Some(Diff {
-                    diff: MultiCell(ret),
-                    win_state: Lost,
-                })
+                Some(MultiCell(ret))
             }
         }
     }
@@ -171,7 +122,7 @@ impl Cell {
         }
     }
 
-    pub fn diff_result(&mut self, i: usize, visibility: TileVisibility) -> CellDiff {
+    pub fn diff_result(&mut self, i: usize, visibility: TileVisibility) -> Diff {
         SingleCell(self.diff(i, visibility))
     }
 }

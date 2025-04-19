@@ -6,17 +6,19 @@ use crate::action::RestartAction::*;
 use crate::args::MinesweeperArgs;
 use crate::cell::Cell;
 use crate::cell_content::CellContent::*;
-use crate::diff::CellDiff::{MultiCell, SingleCell};
+use crate::diff::Diff::{MultiCell, SingleCell};
 use crate::diff::{Diff, SingleCellDiff};
 use crate::flag::Flag::*;
 use crate::input_state::InputState;
+use crate::tile_visibility::TileVisibility;
+use crate::tile_visibility::TileVisibility::Hidden;
 use crate::util::{DIRS_8, DIRS_9, fill_random, i_xy, valid_neighbors, xy_i};
 use crate::win_state::WinState;
-use crate::win_state::WinState::Ongoing;
+use crate::win_state::WinState::{Lost, Ongoing, Won};
+use TileVisibility::Show;
 use WinState::Untouched;
-use rand::RngCore;
-use std::cmp::{PartialEq, max, min};
-use std::collections::{BTreeSet, VecDeque};
+use std::cmp::{max, min};
+use std::collections::VecDeque;
 use std::default::Default;
 use std::fmt;
 use std::fmt::{Display, Formatter};
@@ -28,7 +30,7 @@ pub struct Minesweeper {
     pub game_state: GameState,
     pub input_state: InputState,
     pub display: DisplayText,
-    pub point_stack: VecDeque<(u16, u16)>,
+    pub point_stack: VecDeque<Cursor>,
 }
 
 #[derive(Debug, Default)]
@@ -66,13 +68,11 @@ impl History {
         game.apply(&self.entries[ri]);
     }
     fn step_back(&mut self, game: &mut GameState) {
-        let mut i = self.index;
-        i += 1;
-        if i >= self.entries.len() {
+        if self.index >= self.entries.len() {
             return;
         }
-        self.index = i;
-        let ri = self.entries.len() - i - 1;
+        let ri = self.entries.len() - self.index - 1;
+        self.index += 1;
         game.undo(&self.entries[ri]);
     }
 }
@@ -82,7 +82,8 @@ pub struct GameState {
     pub win_state: WinState,
     pub cells: Vec<Cell>,
     pub flagged_cells: u32,
-    pub open_cells: u32,
+    pub closed_empty_cells: u32,
+    pub open_mine_cells: u32,
 }
 
 impl Minesweeper {
@@ -137,6 +138,7 @@ impl Minesweeper {
 
         let game_state = GameState {
             cells: vec![Cell::default(); size as usize],
+            closed_empty_cells: size - mines,
             ..GameState::default()
         };
 
@@ -171,6 +173,7 @@ impl Minesweeper {
                 let Some(diff) = a.apply(&mut self.game_state, &self.args) else {
                     break 'b;
                 };
+                self.game_state.apply(&diff);
                 self.history.push(diff);
             }
             Restart(option) => {
@@ -274,8 +277,11 @@ impl GameState {
             after,
         }: &SingleCellDiff,
     ) {
+        //let cell = &mut self.cells[*index];
+        //assert_eq!(*before, *cell);
+
+        self.apply_state(before, after);
         let cell = &mut self.cells[*index];
-        assert_eq!(*before, *cell);
         *cell = *after;
     }
     fn undo_single_diff(
@@ -286,12 +292,42 @@ impl GameState {
             after,
         }: &SingleCellDiff,
     ) {
-        let cell = &mut self.cells[*index];
+        let cell = &self.cells[*index];
         assert_eq!(*after, *cell);
+
+        self.apply_state(after, before);
+        let cell = &mut self.cells[*index];
         *cell = *before;
     }
+
+    fn apply_state(&mut self, before: &Cell, after: &Cell) {
+        let visibility_diff = (before.content, before.visibility, after.visibility);
+
+        match visibility_diff {
+            // empty
+            (Empty(_), Hidden(_), Show) => self.closed_empty_cells -= 1,
+            (Empty(_), Show, Hidden(_)) => self.closed_empty_cells += 1,
+            // mine
+            (Mine, Hidden(_), Show) => self.open_mine_cells += 1,
+            (Mine, Show, Hidden(_)) => self.open_mine_cells -= 1,
+            _ => {}
+        };
+
+        match visibility_diff {
+            (_, Show | Hidden(FlaggedMaybe | Clear), Hidden(Flagged)) => self.flagged_cells += 1,
+            (_, Hidden(Flagged), Show | Hidden(FlaggedMaybe | Clear)) => self.flagged_cells -= 1,
+            _ => {}
+        };
+
+        self.win_state = match (self.closed_empty_cells, self.open_mine_cells) {
+            (0, 0) => Won,
+            (_, 0) => Ongoing,
+            (_, _) => Lost,
+        }
+    }
+
     fn apply(&mut self, diff: &Diff) {
-        match &diff.diff {
+        match diff {
             SingleCell(diff) => {
                 self.apply_single_diff(diff);
             }
@@ -304,7 +340,7 @@ impl GameState {
     }
 
     fn undo(&mut self, diff: &Diff) {
-        match &diff.diff {
+        match diff {
             SingleCell(diff) => {
                 self.undo_single_diff(diff);
             }

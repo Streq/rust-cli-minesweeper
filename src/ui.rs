@@ -105,7 +105,8 @@ impl App {
                     win_state,
                     cells,
                     flagged_cells,
-                    open_cells,
+                    closed_empty_cells,
+                    open_mine_cells,
                 },
             input_state: InputState { cursor: (x, y), .. },
             ..
@@ -234,6 +235,12 @@ impl App {
         let cursor = self.game.input_state.cursor;
 
         match (key.modifiers, key.code) {
+            (KeyModifiers::CONTROL, KeyCode::Char('z') | KeyCode::Char('Z')) => {
+                self.game.input_state.action = Some(Debug(Undo))
+            }
+            (KeyModifiers::CONTROL, KeyCode::Char('y') | KeyCode::Char('Y')) => {
+                self.game.input_state.action = Some(Debug(Redo))
+            }
             (_, KeyCode::Esc | KeyCode::Char('q'))
             | (KeyModifiers::CONTROL, KeyCode::Char('c') | KeyCode::Char('C')) => self.quit(),
             // Add other key handlers here.
