@@ -1,5 +1,6 @@
 use std::ops::Sub;
 
+#[allow(dead_code)]
 pub fn dist_to_range<T: PartialOrd + Sub<Output = T> + Default>(
     x: T,
     start_inclusive: T,
@@ -14,6 +15,7 @@ pub fn dist_to_range<T: PartialOrd + Sub<Output = T> + Default>(
     }
 }
 
+#[allow(dead_code)]
 pub fn get_in_range<T: PartialOrd + Sub<Output = T> + Default>(
     x: T,
     start_inclusive: T,
