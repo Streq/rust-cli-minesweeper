@@ -6,6 +6,7 @@
 | *(font is [eurostile](https://damieng.com/typography/zx-origins/zx-eurostile/))* |
 
 The first click is guaranteed to be an empty space with 0 neighbor mines
+
 Supports undo/redo with `ctrl-z`/`ctrl-y`
 
 - `shift + arrow keys` = resize
