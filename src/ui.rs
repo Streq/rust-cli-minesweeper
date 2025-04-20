@@ -6,6 +6,7 @@ use crate::args::MinesweeperArgs;
 use crate::cell_content::CellContent;
 use crate::flag::Flag::*;
 use crate::input_state::InputState;
+use crate::math_util::dist_to_range;
 use crate::minesweeper::{DisplayText, GameState, Minesweeper};
 use crate::tile_visibility::TileVisibility::*;
 use crate::util::Sign::*;
@@ -50,6 +51,7 @@ pub fn main(args: MinesweeperArgs) -> Result<()> {
 pub struct App {
     /// Is the application running?
     running: bool,
+    viewport_offset: (u16, u16),
     game: Minesweeper,
 }
 impl App {
@@ -112,6 +114,8 @@ impl App {
             ..
         } = &self.game;
 
+        let x = x + 1;
+        let y = y + 1;
         let (title, bottom) = match win_state {
             WinState::Untouched => (
                 Line::from(*title).bold().light_blue().centered(),
@@ -153,9 +157,28 @@ impl App {
             return;
         }
 
-        for j in area.y + 1..area.y + area.height - 1 {
-            for i in area.x + 1..area.x + area.width - 1 {
-                let Some(tile) = self.game.get_tile(i - 1, j - 1) else {
+        let (vox, voy) = &mut self.viewport_offset;
+
+        let i0 = area.x + 1;
+        let i1 = area.x + area.width - 1;
+        let x_offset = dist_to_range(x as i16 - *vox as i16, i0 as i16, i1 as i16 - 1);
+        *vox = vox
+            .saturating_add_signed(x_offset)
+            .min(width.saturating_sub(area.width.saturating_sub(2)));
+
+        let j0 = area.y + 1;
+        let j1 = area.y + area.height - 1;
+        let y_offset = dist_to_range(y as i16 - *voy as i16, j0 as i16, j1 as i16 - 1);
+        *voy = voy
+            .saturating_add_signed(y_offset)
+            .min(height.saturating_sub(area.height.saturating_sub(2)));
+
+        for j_screen in j0..j1 {
+            let j_game = (j_screen - 1).saturating_add(*voy);
+            for i_screen in i0..i1 {
+                let i_game = (i_screen - 1).saturating_add(*vox);
+
+                let Some(tile) = self.game.get_tile(i_game, j_game) else {
                     continue;
                 };
 
@@ -190,12 +213,11 @@ impl App {
                 let mut c = Cell::new("");
                 c.set_char(char).set_fg(fg).set_bg(bg);
                 c.modifier = modifier;
-                frame.buffer_mut().content[w as usize * j as usize + i as usize] = c;
+                frame.buffer_mut().content[w as usize * j_screen as usize + i_screen as usize] = c;
             }
         }
-
-        let x = self.game.input_state.cursor.0 + 1;
-        let y = self.game.input_state.cursor.1 + 1;
+        let x = x.saturating_sub(*vox);
+        let y = y.saturating_sub(*voy);
         frame.set_cursor_position(Position { x, y });
     }
 
@@ -203,6 +225,26 @@ impl App {
         match event::read()? {
             // it's important to check KeyEventKind::Press to avoid handling key release events
             Event::Key(key) if key.kind == KeyEventKind::Press => self.on_key_event(key),
+            Event::Mouse(m)
+                if m.kind == MouseEventKind::ScrollRight
+                    || (m.kind == MouseEventKind::ScrollDown
+                        && m.modifiers.contains(KeyModifiers::ALT)) =>
+            {
+                self.viewport_offset.0 = self.viewport_offset.0.saturating_add(1);
+            }
+            Event::Mouse(m)
+                if m.kind == MouseEventKind::ScrollLeft
+                    || (m.kind == MouseEventKind::ScrollUp
+                        && m.modifiers.contains(KeyModifiers::ALT)) =>
+            {
+                self.viewport_offset.0 = self.viewport_offset.0.saturating_sub(1);
+            }
+            Event::Mouse(m) if m.kind == MouseEventKind::ScrollDown => {
+                self.viewport_offset.1 = self.viewport_offset.1.saturating_add(1);
+            }
+            Event::Mouse(m) if m.kind == MouseEventKind::ScrollUp => {
+                self.viewport_offset.1 = self.viewport_offset.1.saturating_sub(1);
+            }
             Event::Mouse(m) => match m.kind {
                 MouseEventKind::Down(button) => 'block: {
                     if !(1..self.game.args.width + 1).contains(&m.column)
@@ -210,7 +252,10 @@ impl App {
                     {
                         break 'block;
                     }
-                    self.game.input_state.cursor = (m.column - 1, m.row - 1);
+                    self.game.input_state.cursor = (
+                        m.column - 1 + self.viewport_offset.0,
+                        m.row - 1 + self.viewport_offset.1,
+                    );
                     let cursor = self.game.input_state.cursor;
                     match button {
                         MouseButton::Left => {

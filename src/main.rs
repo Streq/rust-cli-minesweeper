@@ -7,6 +7,7 @@ mod cell_content;
 mod diff;
 mod flag;
 mod input_state;
+mod math_util;
 mod minesweeper;
 mod tile_visibility;
 mod ui;
