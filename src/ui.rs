@@ -29,20 +29,29 @@ use ratatui::{
 
 struct TerminalGuard;
 
+impl TerminalGuard {
+    fn new() -> Self {
+        std::io::stdout()
+            .execute(event::EnableMouseCapture)
+            .unwrap();
+        Self {}
+    }
+}
+
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = std::io::stdout()
             .execute(event::DisableMouseCapture)
             .unwrap();
-        println!("Cleanup in drop.");
+        ratatui::restore();
     }
 }
 pub fn main(args: MinesweeperArgs) -> Result<()> {
-    let _ = TerminalGuard {};
+    let _ = TerminalGuard::new();
+
     color_eyre::install()?;
     let terminal = ratatui::init();
     let result = App::new(args).run(terminal);
-    ratatui::restore();
     result
 }
 
@@ -65,16 +74,12 @@ impl App {
 
     /// Run the application's main loop.
     pub fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
-        std::io::stdout().execute(event::EnableMouseCapture)?;
-
         self.running = true;
         while self.running {
             terminal.draw(|frame| self.render(frame))?;
             self.handle_crossterm_events()?;
             self.game.update();
         }
-
-        std::io::stdout().execute(event::DisableMouseCapture)?;
         Ok(())
     }
 
